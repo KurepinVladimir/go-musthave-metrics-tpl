@@ -3,46 +3,51 @@ package main
 import (
 	"fmt"
 	"math/rand"
-	"net/http"
 	"runtime"
 	"strconv"
 	"time"
+
+	"github.com/go-resty/resty/v2"
 )
 
 const (
-	reportInterval = 10 * time.Second
-	pollInterval   = 2 * time.Second
+	reportInterval = 10 * time.Second // Интервал отправки метрик на сервер
+	pollInterval   = 2 * time.Second  // Интервал обновления метрик
 )
 
-var pollCount int64
+var pollCount int64 // Счётчик обновлений метрик
 
 // отправка метрики на сервер
-func sendMetric(serverURL, metricType, name, value string) error {
+func sendMetric(client *resty.Client, serverURL, metricType, name, value string) error {
 
 	url := fmt.Sprintf("%s/%s/%s/%s", serverURL, metricType, name, value)
 
-	req, err := http.NewRequest(http.MethodPost, url, nil)
-	if err != nil {
-		fmt.Println("create request error:", err)
-		return err
-	}
-	req.Header.Set("Content-Type", "text/plain")
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.R().
+		SetHeader("Content-Type", "text/plain").
+		Post(url) // Отправка POST-запроса
 	if err != nil {
 		fmt.Println("send error:", err)
 		return err
 	}
-	defer resp.Body.Close()
+
+	if resp.IsError() {
+		fmt.Printf("server returned error: %s\n", resp.Status())
+	}
 	return nil
+
 }
 
 func main() {
 
 	serverURL := "http://localhost:8080/update"
 
+	// Создаём HTTP-клиент resty
+	client := resty.New()
+
+	// Хранилище runtime метрик
 	runtimeMetrics := make(map[string]float64)
 
+	// Таймеры для обновления и отправки метрик
 	tickerPoll := time.NewTicker(pollInterval)
 	tickerReport := time.NewTicker(reportInterval)
 	defer tickerPoll.Stop()
@@ -52,7 +57,7 @@ func main() {
 		select {
 		case <-tickerPoll.C:
 			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
+			runtime.ReadMemStats(&m) // Считываем текущие значения метрик
 
 			// обновляем runtime метрики
 			runtimeMetrics["Alloc"] = float64(m.Alloc)
@@ -86,19 +91,20 @@ func main() {
 			// RandomValue
 			runtimeMetrics["RandomValue"] = rand.Float64()
 
+			// Увеличиваем счётчик обновлений
 			pollCount++
 
 		case <-tickerReport.C:
+			// Отправляем все метрики типа gauge
 			for name, value := range runtimeMetrics {
-				err := sendMetric(serverURL, "gauge", name, strconv.FormatFloat(value, 'f', -1, 64))
-
+				err := sendMetric(client, serverURL, "gauge", name, strconv.FormatFloat(value, 'f', -1, 64))
 				if err != nil {
 					fmt.Println("sendMetric returned error:", err)
 				}
-
 			}
 
-			err := sendMetric(serverURL, "counter", "PollCount", strconv.FormatInt(pollCount, 10))
+			// Отправляем метрику PollCount
+			err := sendMetric(client, serverURL, "counter", "PollCount", strconv.FormatInt(pollCount, 10))
 			if err != nil {
 				fmt.Println("sendMetric returned error:", err)
 			}

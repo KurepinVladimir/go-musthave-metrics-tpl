@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/go-resty/resty/v2"
 )
 
 func collectRuntimeMetrics(metrics map[string]float64) {
@@ -32,9 +34,10 @@ func TestSendMetric(t *testing.T) {
 	}))
 	defer ts.Close()
 
+	client := resty.New()
 	serverURL := ts.URL + "/update"
 
-	err := sendMetric(serverURL, "gauge", "TestMetric", "42.0")
+	err := sendMetric(client, serverURL, "gauge", "TestMetric", "42.0")
 	if err != nil {
 		t.Errorf("sendMetric returned error: %v", err)
 	}
