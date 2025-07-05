@@ -10,9 +10,9 @@ import (
 	"github.com/go-resty/resty/v2"
 )
 
-const (
-	reportInterval = 10 * time.Second // Интервал отправки метрик на сервер
-	pollInterval   = 2 * time.Second  // Интервал обновления метрик
+var (
+	reportInterval = time.Duration(flagReportInterval) * time.Second // Интервал отправки метрик на сервер, по умолчанию 10 секунд
+	pollInterval   = time.Duration(flagPollInterval) * time.Second   // Интервал обновления метрик, по умолчанию 2 секунды
 )
 
 var pollCount int64 // Счётчик обновлений метрик
@@ -39,7 +39,19 @@ func sendMetric(client *resty.Client, serverURL, metricType, name, value string)
 
 func main() {
 
-	serverURL := "http://localhost:8080/update"
+	// обрабатываем аргументы командной строки
+	parseFlags()
+
+	run()
+
+	// if err := run(); err != nil {
+	// 	//log.Fatalf("sendMetric returned error: %v", err)
+	// 	fmt.Println("sendMetric returned error:", err)
+	// }
+
+}
+
+func run() {
 
 	// Создаём HTTP-клиент resty
 	client := resty.New()
@@ -97,14 +109,14 @@ func main() {
 		case <-tickerReport.C:
 			// Отправляем все метрики типа gauge
 			for name, value := range runtimeMetrics {
-				err := sendMetric(client, serverURL, "gauge", name, strconv.FormatFloat(value, 'f', -1, 64))
+				err := sendMetric(client, flagRunAddr, "gauge", name, strconv.FormatFloat(value, 'f', -1, 64))
 				if err != nil {
 					fmt.Println("sendMetric returned error:", err)
 				}
 			}
 
 			// Отправляем метрику PollCount
-			err := sendMetric(client, serverURL, "counter", "PollCount", strconv.FormatInt(pollCount, 10))
+			err := sendMetric(client, flagRunAddr, "counter", "PollCount", strconv.FormatInt(pollCount, 10))
 			if err != nil {
 				fmt.Println("sendMetric returned error:", err)
 			}
