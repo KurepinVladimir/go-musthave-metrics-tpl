@@ -7,7 +7,7 @@ import (
 
 // неэкспортированная переменная flagRunAddr содержит адрес и порт для запроса
 var flagRunAddr string
-var flagReportInterval, flagPollInterval int
+var flagReportInterval, flagPollInterval int64
 
 // parseFlags обрабатывает аргументы командной строки
 // и сохраняет их значения в соответствующих переменных
@@ -19,10 +19,10 @@ func parseFlags() {
 	flag.StringVar(&flagRunAddr, "a", "http://localhost:8080/update", "address and port")
 
 	// Флаг -r=<ЗНАЧЕНИЕ> позволяет переопределять reportInterval — частоту отправки метрик на сервер (по умолчанию 10 секунд).
-	flag.IntVar(&flagReportInterval, "r", 10, "reportInterval — частоту отправки метрик на сервер")
+	flag.Int64Var(&flagReportInterval, "r", 10, "reportInterval — частоту отправки метрик на сервер")
 
 	// Флаг -p=<ЗНАЧЕНИЕ> позволяет переопределять pollInterval — частоту опроса метрик из пакета runtime (по умолчанию 2 секунды).
-	flag.IntVar(&flagPollInterval, "p", 2, "pollInterval — частоту опроса метрик из пакета runtime")
+	flag.Int64Var(&flagPollInterval, "p", 2, "pollInterval — частоту опроса метрик из пакета runtime")
 
 	// парсим переданные аргументы в зарегистрированные переменные
 	flag.Parse()
