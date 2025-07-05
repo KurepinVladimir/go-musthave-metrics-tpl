@@ -169,15 +169,26 @@ func indexHandler(storage Storage) http.HandlerFunc {
 }
 
 func main() {
+
+	// обрабатываем аргументы командной строки
+	parseFlags()
+
+	if err := run(); err != nil {
+		log.Fatalf("Server failed: %v", err)
+	}
+
+}
+
+func run() error {
+
 	storage := NewMemStorage()
 	r := chi.NewRouter()
 	r.Post("/update/{type}/{name}/{value}", updateHandler(storage)) // Регистрируем маршрут с параметрами
 	r.Get("/value/{type}/{name}", valueHandler(storage))
 	r.Get("/", indexHandler(storage))
 
-	log.Println("Starting server at http://localhost:8080")
-	err := http.ListenAndServe(":8080", r)
-	if err != nil {
-		log.Fatalf("Server failed: %v", err)
-	}
+	log.Println("Starting server at", flagRunAddr)
+
+	return http.ListenAndServe(flagRunAddr, r)
+
 }
