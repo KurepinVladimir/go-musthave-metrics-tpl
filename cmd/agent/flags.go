@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	"strings"
 )
 
 // неэкспортированная переменная flagRunAddr содержит адрес и порт для запроса
@@ -32,6 +33,10 @@ func parseFlags() {
 
 	// парсим переданные аргументы в зарегистрированные переменные
 	flag.Parse()
+
+	if !strings.HasPrefix(flagRunAddr, "http://") && !strings.HasPrefix(flagRunAddr, "https://") {
+		flagRunAddr = "http://" + flagRunAddr
+	}
 
 	// проверка на неизвестные аргументы
 	if len(flag.Args()) > 0 {
