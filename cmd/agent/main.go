@@ -10,17 +10,14 @@ import (
 	"github.com/go-resty/resty/v2"
 )
 
-var (
-	reportInterval = time.Duration(flagReportInterval) * time.Second // Интервал отправки метрик на сервер, по умолчанию 10 секунд
-	pollInterval   = time.Duration(flagPollInterval) * time.Second   // Интервал обновления метрик, по умолчанию 2 секунды
-)
-
 var pollCount int64 // Счётчик обновлений метрик
 
 // отправка метрики на сервер
 func sendMetric(client *resty.Client, serverURL, metricType, name, value string) error {
 
-	url := fmt.Sprintf("%s/%s/%s/%s", serverURL, metricType, name, value)
+	url := fmt.Sprintf("%s/update/%s/%s/%s", serverURL, metricType, name, value)
+	// http://localhost:8080/update
+	// agent.exe -a=http://localhost:8080/update
 
 	resp, err := client.R().
 		SetHeader("Content-Type", "text/plain").
@@ -42,6 +39,10 @@ func main() {
 	// обрабатываем аргументы командной строки
 	parseFlags()
 
+	//fmt.Println("flagRunAddr:", flagRunAddr)
+	//fmt.Println("flagReportInterval:", flagReportInterval)
+	//fmt.Println("flagPollInterval:", flagPollInterval)
+
 	run()
 
 	// if err := run(); err != nil {
@@ -52,6 +53,9 @@ func main() {
 }
 
 func run() {
+
+	reportInterval := time.Duration(flagReportInterval) * time.Second // Интервал отправки метрик на сервер, по умолчанию 10 секунд
+	pollInterval := time.Duration(flagPollInterval) * time.Second     // Интервал обновления метрик, по умолчанию 2 секунды
 
 	// Создаём HTTP-клиент resty
 	client := resty.New()
