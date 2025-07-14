@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"path"
 	"runtime"
 	"strconv"
 	"time"
@@ -15,9 +16,10 @@ var pollCount int64 // Счётчик обновлений метрик
 // отправка метрики на сервер
 func sendMetric(client *resty.Client, serverURL, metricType, name, value string) error {
 
-	url := fmt.Sprintf("%s/update/%s/%s/%s", serverURL, metricType, name, value)
+	//url := fmt.Sprintf("%s/update/%s/%s/%s", serverURL, metricType, name, value)
 	// http://localhost:8080/update
 	// agent.exe -a=http://localhost:8080/update
+	url := serverURL + path.Join("/update", metricType, name, value)
 
 	resp, err := client.R().
 		SetHeader("Content-Type", "text/plain").

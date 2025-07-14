@@ -3,7 +3,14 @@ package main
 import (
 	"flag"
 	"log"
+
+	//"os"
+	//"strconv"
 	"strings"
+
+	"time"
+
+	"github.com/caarlos0/env/v6"
 )
 
 // неэкспортированная переменная flagRunAddr содержит адрес и порт для запроса
@@ -12,6 +19,12 @@ var (
 	flagReportInterval int64
 	flagPollInterval   int64
 )
+
+type Config struct {
+	RunAddr        string        `env:"ADDRESS"`
+	ReportInterval time.Duration `env:"REPORT_INTERVAL"`
+	PollInterval   time.Duration `env:"POLL_INTERVAL"`
+}
 
 // parseFlags обрабатывает аргументы командной строки
 // и сохраняет их значения в соответствующих переменных
@@ -42,4 +55,50 @@ func parseFlags() {
 	if len(flag.Args()) > 0 {
 		log.Fatalf("Неизвестные аргументы: %v", flag.Args())
 	}
+
+	// if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
+	// 	flagRunAddr = envRunAddr
+	// }
+
+	// if envReportInterval := os.Getenv("REPORT_INTERVAL"); envReportInterval != "" {
+	// 	if val, err := strconv.ParseInt(envReportInterval, 10, 64); err == nil {
+	// 		flagReportInterval = val
+	// 	} else {
+	// 		log.Fatalf("Invalid REPORT_INTERVAL: %v", err)
+	// 	}
+	// }
+
+	// if envPollInterval := os.Getenv("POLL_INTERVAL"); envPollInterval != "" {
+	// 	if val, err := strconv.ParseInt(envPollInterval, 10, 64); err == nil {
+	// 		flagPollInterval = val
+	// 	} else {
+	// 		log.Fatalf("Invalid POLL_INTERVAL: %v", err)
+	// 	}
+	// }
+
+	//2
+
+	var cfg Config
+	err := env.Parse(&cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if envRunAddr := cfg.RunAddr; envRunAddr != "" {
+
+		flagRunAddr = envRunAddr
+
+		if !strings.HasPrefix(flagRunAddr, "http://") && !strings.HasPrefix(flagRunAddr, "https://") {
+			flagRunAddr = "http://" + flagRunAddr
+		}
+	}
+
+	if envReportInterval := cfg.ReportInterval; envReportInterval != 0 {
+		flagReportInterval = int64(envReportInterval.Seconds())
+	}
+
+	if envPollInterval := cfg.PollInterval; envPollInterval != 0 {
+		flagPollInterval = int64(envPollInterval.Seconds())
+	}
+
 }
