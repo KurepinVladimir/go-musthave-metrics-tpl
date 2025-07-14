@@ -8,7 +8,7 @@ import (
 	//"strconv"
 	"strings"
 
-	"time"
+	//"time"
 
 	"github.com/caarlos0/env/v6"
 )
@@ -20,10 +20,16 @@ var (
 	flagPollInterval   int64
 )
 
+// type Config struct {
+// 	RunAddr        string        `env:"ADDRESS"`
+// 	ReportInterval time.Duration `env:"REPORT_INTERVAL"`
+// 	PollInterval   time.Duration `env:"POLL_INTERVAL"`
+// }
+
 type Config struct {
-	RunAddr        string        `env:"ADDRESS"`
-	ReportInterval time.Duration `env:"REPORT_INTERVAL"`
-	PollInterval   time.Duration `env:"POLL_INTERVAL"`
+	RunAddr        string `env:"ADDRESS"`
+	ReportInterval int    `env:"REPORT_INTERVAL"`
+	PollInterval   int    `env:"POLL_INTERVAL"`
 }
 
 // parseFlags обрабатывает аргументы командной строки
@@ -56,28 +62,8 @@ func parseFlags() {
 		log.Fatalf("Неизвестные аргументы: %v", flag.Args())
 	}
 
-	// if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
-	// 	flagRunAddr = envRunAddr
-	// }
-
-	// if envReportInterval := os.Getenv("REPORT_INTERVAL"); envReportInterval != "" {
-	// 	if val, err := strconv.ParseInt(envReportInterval, 10, 64); err == nil {
-	// 		flagReportInterval = val
-	// 	} else {
-	// 		log.Fatalf("Invalid REPORT_INTERVAL: %v", err)
-	// 	}
-	// }
-
-	// if envPollInterval := os.Getenv("POLL_INTERVAL"); envPollInterval != "" {
-	// 	if val, err := strconv.ParseInt(envPollInterval, 10, 64); err == nil {
-	// 		flagPollInterval = val
-	// 	} else {
-	// 		log.Fatalf("Invalid POLL_INTERVAL: %v", err)
-	// 	}
-	// }
-
-	//2
-
+	// читаем переменные окружения и заполняем структуру Config
+	// если переменные окружения не заданы, то будут использованы значения по умолчанию
 	var cfg Config
 	err := env.Parse(&cfg)
 	if err != nil {
@@ -94,11 +80,13 @@ func parseFlags() {
 	}
 
 	if envReportInterval := cfg.ReportInterval; envReportInterval != 0 {
-		flagReportInterval = int64(envReportInterval.Seconds())
+		//flagReportInterval = int64(envReportInterval.Seconds())
+		flagReportInterval = int64(envReportInterval)
 	}
 
 	if envPollInterval := cfg.PollInterval; envPollInterval != 0 {
-		flagPollInterval = int64(envPollInterval.Seconds())
+		//flagPollInterval = int64(envPollInterval.Seconds())
+		flagPollInterval = int64(envPollInterval)
 	}
 
 }
