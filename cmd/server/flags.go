@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"log"
+	"os"
 )
 
 // неэкспортированная переменная flagRunAddr содержит адрес и порт для запуска сервера
@@ -23,4 +24,14 @@ func parseFlags() {
 	if len(flag.Args()) > 0 {
 		log.Fatalf("Неизвестные аргументы: %v", flag.Args())
 	}
+
+	if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
+		flagRunAddr = envRunAddr
+
+		// if !strings.HasPrefix(flagRunAddr, "http://") && !strings.HasPrefix(flagRunAddr, "https://") {
+		// 	flagRunAddr = "http://" + flagRunAddr
+		// }
+
+	}
+
 }
