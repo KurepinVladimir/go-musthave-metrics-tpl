@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/zap"
 )
 
 // Storage описывает поведение хранилища метрик
@@ -179,16 +181,27 @@ func main() {
 
 }
 
+// функция run будет полезна при инициализации зависимостей сервера перед запуском
 func run() error {
 
+	if err := logger.Initialize("INFO"); err != nil {
+		return err
+	}
+
 	storage := NewMemStorage()
+
 	r := chi.NewRouter()
+
+	//Use добавляет middleware ко всем маршрутам, зарегистрированным через chi.Router.
+	r.Use(logger.RequestLogger)
+
 	r.Post("/update/{type}/{name}/{value}", updateHandler(storage)) // Регистрируем маршрут с параметрами
 	r.Get("/value/{type}/{name}", valueHandler(storage))
 	r.Get("/", indexHandler(storage))
 
-	log.Println("Starting server at", flagRunAddr)
+	//log.Println("Starting server at", flagRunAddr)
+	logger.Log.Info("Running server", zap.String("address", flagRunAddr))
 
 	return http.ListenAndServe(flagRunAddr, r)
-
+	//return http.ListenAndServe(flagRunAddr, logger.RequestLogger(r))
 }
