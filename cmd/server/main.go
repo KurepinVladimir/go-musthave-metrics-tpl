@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
@@ -120,6 +122,94 @@ func updateHandler(storage Storage) http.HandlerFunc {
 	}
 }
 
+func updateHandlerJSON(storage Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+
+		// десериализуем запрос в структуру модели
+		logger.Log.Debug("decoding request")
+		var m models.Metrics
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&m); err != nil {
+			logger.Log.Debug("cannot decode request JSON body", zap.Error(err))
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		// заполняем модель ответа
+		// 	resp := models.Response{
+		// 		Response: models.ResponsePayload{
+		// 			Text: "Извините, я пока ничего не умею",
+		// 		},
+		// 		Version: "1.0",
+		// 	}
+
+		switch m.MType {
+		case "gauge":
+			if m.Value == nil {
+				http.Error(w, "missing gauge value", http.StatusBadRequest)
+				return
+			}
+			storage.UpdateGauge(m.ID, *m.Value)
+		case "counter":
+			if m.Delta == nil {
+				http.Error(w, "missing counter delta", http.StatusBadRequest)
+				return
+			}
+			storage.UpdateCounter(m.ID, *m.Delta)
+		default:
+			http.Error(w, "unknown metric type", http.StatusNotImplemented)
+			return
+		}
+
+		// w.Header().Set("Content-Type", "application/json")
+		// w.WriteHeader(http.StatusOK)
+		// json.NewEncoder(w).Encode(m)
+
+		// установим правильный заголовок для типа данных
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		// сериализуем ответ сервера
+		enc := json.NewEncoder(w)
+		if err := enc.Encode(m); err != nil {
+			logger.Log.Debug("error encoding response", zap.Error(err))
+			return
+		}
+		logger.Log.Debug("sending HTTP 200 response")
+	}
+}
+
+func valueHandlerJSON(storage Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var m models.Metrics
+		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		switch m.MType {
+		case "gauge":
+			val, ok := storage.GetGauge(m.ID)
+			if !ok {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			m.Value = &val
+		case "counter":
+			val, ok := storage.GetCounter(m.ID)
+			if !ok {
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			m.Delta = &val
+		default:
+			http.Error(w, "unknown metric type", http.StatusNotImplemented)
+			return
+		}
+		json.NewEncoder(w).Encode(m)
+	}
+}
+
 // GET /value/{type}/{name}
 func valueHandler(storage Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -196,6 +286,13 @@ func run() error {
 	r.Use(logger.RequestLogger)
 
 	r.Post("/update/{type}/{name}/{value}", updateHandler(storage)) // Регистрируем маршрут с параметрами
+
+	r.Post("/update", updateHandlerJSON(storage))
+	r.Post("/update/", updateHandlerJSON(storage))
+
+	r.Post("/value", valueHandlerJSON(storage))
+	r.Post("/value/", valueHandlerJSON(storage))
+
 	r.Get("/value/{type}/{name}", valueHandler(storage))
 	r.Get("/", indexHandler(storage))
 

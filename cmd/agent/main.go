@@ -3,55 +3,45 @@ package main
 import (
 	"fmt"
 	"math/rand"
-	"path"
+
+	//"path"
 	"runtime"
-	"strconv"
 	"time"
 
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 	"github.com/go-resty/resty/v2"
+	"go.uber.org/zap"
 )
 
-var pollCount int64 // Счётчик обновлений метрик
+var pollCount int64     // Счётчик обновлений метрик
+var randomValue float64 // Значение случайной метрики
 
 // отправка метрики на сервер
-func sendMetric(client *resty.Client, serverURL, metricType, name, value string) error {
-
-	//url := fmt.Sprintf("%s/update/%s/%s/%s", serverURL, metricType, name, value)
-	// http://localhost:8080/update
-	// agent.exe -a=http://localhost:8080/update
-	url := serverURL + path.Join("/update", metricType, name, value)
+func sendMetricJSON(client *resty.Client, serverURL string, metric models.Metrics) error {
 
 	resp, err := client.R().
-		SetHeader("Content-Type", "text/plain").
-		Post(url) // Отправка POST-запроса
+		SetHeader("Content-Type", "application/json").
+		SetBody(metric).
+		Post(serverURL + "/update")
 	if err != nil {
-		fmt.Println("send error:", err)
+		logger.Log.Debug("send error:", zap.Error(err))
 		return err
 	}
 
 	if resp.IsError() {
-		fmt.Printf("server returned error: %s\n", resp.Status())
+		logger.Log.Debug("server returned error", zap.Int("status", resp.StatusCode()), zap.String("body", resp.String()))
+		return err
 	}
+	logger.Log.Debug("metric sent", zap.String("id", metric.ID), zap.String("type", metric.MType))
 	return nil
 
 }
 
 func main() {
-
 	// обрабатываем аргументы командной строки
 	parseFlags()
-
-	//fmt.Println("flagRunAddr:", flagRunAddr)
-	//fmt.Println("flagReportInterval:", flagReportInterval)
-	//fmt.Println("flagPollInterval:", flagPollInterval)
-
 	run()
-
-	// if err := run(); err != nil {
-	// 	//log.Fatalf("sendMetric returned error: %v", err)
-	// 	fmt.Println("sendMetric returned error:", err)
-	// }
-
 }
 
 func run() {
@@ -74,6 +64,7 @@ func run() {
 	for {
 		select {
 		case <-tickerPoll.C:
+
 			var m runtime.MemStats
 			runtime.ReadMemStats(&m) // Считываем текущие значения метрик
 
@@ -106,26 +97,45 @@ func run() {
 			runtimeMetrics["Sys"] = float64(m.Sys)
 			runtimeMetrics["TotalAlloc"] = float64(m.TotalAlloc)
 
-			// RandomValue
-			runtimeMetrics["RandomValue"] = rand.Float64()
+			// // Обновляем RandomValue
+			randomValue = rand.Float64()
 
-			// Увеличиваем счётчик обновлений
+			// // Увеличиваем счётчик обновлений
 			pollCount++
 
+			logger.Log.Debug("collected metrics", zap.Int("count", len(runtimeMetrics)))
+
 		case <-tickerReport.C:
-			// Отправляем все метрики типа gauge
-			for name, value := range runtimeMetrics {
-				err := sendMetric(client, flagRunAddr, "gauge", name, strconv.FormatFloat(value, 'f', -1, 64))
-				if err != nil {
-					fmt.Println("sendMetric returned error:", err)
+
+			// Отправка runtime метрик
+			for name, val := range runtimeMetrics {
+				value := val
+				metric := models.Metrics{
+					ID:    name,
+					MType: "gauge",
+					Value: &value,
 				}
+				_ = sendMetricJSON(client, flagRunAddr, metric)
 			}
 
-			// Отправляем метрику PollCount
-			err := sendMetric(client, flagRunAddr, "counter", "PollCount", strconv.FormatInt(pollCount, 10))
-			if err != nil {
-				fmt.Println("sendMetric returned error:", err)
-			}
+			// Отправка RandomValue
+			value := randomValue
+			_ = sendMetricJSON(client, flagRunAddr, models.Metrics{
+				ID:    "RandomValue",
+				MType: "gauge",
+				Value: &value,
+			})
+			logger.Log.Debug("metrics reported", zap.String("RandomValue", fmt.Sprintf("%f", randomValue)))
+
+			// Отправка PollCount
+			delta := pollCount
+			_ = sendMetricJSON(client, flagRunAddr, models.Metrics{
+				ID:    "PollCount",
+				MType: "counter",
+				Delta: &delta,
+			})
+			logger.Log.Debug("metrics reported", zap.Int64("PollCount", pollCount))
 		}
+
 	}
 }
