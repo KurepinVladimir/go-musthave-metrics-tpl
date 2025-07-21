@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -142,4 +144,126 @@ func TestHTMLHandler(t *testing.T) {
 	assert.Contains(t, string(body), "1.230")
 	assert.Contains(t, string(body), "myCounter")
 	assert.Contains(t, string(body), "99")
+}
+
+func TestUpdateHandlerJSON(t *testing.T) {
+	storage := NewMemStorage()
+	handler := updateHandlerJSON(storage)
+
+	tests := []struct {
+		name       string
+		input      string
+		wantStatus int
+		check      func() error
+	}{
+		{
+			name:       "valid gauge metric",
+			input:      `{"id":"TestGauge","type":"gauge","value":123.456}`,
+			wantStatus: http.StatusOK,
+			check: func() error {
+				v, ok := storage.GetGauge("TestGauge")
+				if !ok || v != 123.456 {
+					return fmt.Errorf("expected 123.456, got %v (ok=%v)", v, ok)
+				}
+				return nil
+			},
+		},
+		{
+			name:       "valid counter metric",
+			input:      `{"id":"TestCounter","type":"counter","delta":5}`,
+			wantStatus: http.StatusOK,
+			check: func() error {
+				v, ok := storage.GetCounter("TestCounter")
+				if !ok || v != 5 {
+					return fmt.Errorf("expected 5, got %v (ok=%v)", v, ok)
+				}
+				return nil
+			},
+		},
+		{
+			name:       "missing value",
+			input:      `{"id":"NoValue","type":"gauge"}`,
+			wantStatus: http.StatusBadRequest,
+			check:      func() error { return nil },
+		},
+		{
+			name:       "unknown type",
+			input:      `{"id":"BadType","type":"other","value":1.23}`,
+			wantStatus: http.StatusNotImplemented,
+			check:      func() error { return nil },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(tt.input))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+
+			handler(rr, req)
+			res := rr.Result()
+			defer res.Body.Close()
+
+			if res.StatusCode != tt.wantStatus {
+				t.Errorf("got status %d, want %d", res.StatusCode, tt.wantStatus)
+			}
+			if err := tt.check(); err != nil {
+				t.Errorf("check failed: %v", err)
+			}
+		})
+	}
+}
+
+func TestValueHandlerJSON(t *testing.T) {
+	storage := NewMemStorage()
+	storage.UpdateGauge("G1", 99.9)
+	storage.UpdateCounter("C1", 7)
+
+	handler := valueHandlerJSON(storage)
+
+	tests := []struct {
+		name       string
+		input      string
+		wantStatus int
+		wantBody   string
+	}{
+		{
+			name:       "existing gauge",
+			input:      `{"id":"G1","type":"gauge"}`,
+			wantStatus: http.StatusOK,
+			wantBody:   `"value":99.9`,
+		},
+		{
+			name:       "existing counter",
+			input:      `{"id":"C1","type":"counter"}`,
+			wantStatus: http.StatusOK,
+			wantBody:   `"delta":7`,
+		},
+		{
+			name:       "not found",
+			input:      `{"id":"none","type":"gauge"}`,
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/value", strings.NewReader(tt.input))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+
+			handler(rr, req)
+			res := rr.Result()
+			defer res.Body.Close()
+
+			body, _ := io.ReadAll(res.Body)
+
+			if res.StatusCode != tt.wantStatus {
+				t.Errorf("got status %d, want %d", res.StatusCode, tt.wantStatus)
+			}
+			if tt.wantBody != "" && !strings.Contains(string(body), tt.wantBody) {
+				t.Errorf("expected body to contain %q, got %s", tt.wantBody, body)
+			}
+		})
+	}
 }

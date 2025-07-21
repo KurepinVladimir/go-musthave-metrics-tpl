@@ -45,10 +45,10 @@ func parseFlags() {
 	flag.StringVar(&flagRunAddr, "a", "http://localhost:8080", "address and port")
 
 	// Флаг -r=<ЗНАЧЕНИЕ> позволяет переопределять reportInterval — частоту отправки метрик на сервер (по умолчанию 10 секунд).
-	flag.Int64Var(&flagReportInterval, "r", 10, "report interval in seconds")
+	flag.Int64Var(&flagReportInterval, "r", 10, "report interval in seconds") //10
 
 	// Флаг -p=<ЗНАЧЕНИЕ> позволяет переопределять pollInterval — частоту опроса метрик из пакета runtime (по умолчанию 2 секунды).
-	flag.Int64Var(&flagPollInterval, "p", 2, "poll interval in seconds")
+	flag.Int64Var(&flagPollInterval, "p", 2, "poll interval in seconds") //2
 
 	// парсим переданные аргументы в зарегистрированные переменные
 	flag.Parse()
