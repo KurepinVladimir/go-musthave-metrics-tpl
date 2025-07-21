@@ -6,84 +6,16 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"sync"
 
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/repository"
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/zap"
 )
 
-// Storage описывает поведение хранилища метрик
-type Storage interface {
-	UpdateGauge(name string, value float64)
-	UpdateCounter(name string, value int64)
-	GetGauge(name string) (float64, bool)
-	GetCounter(name string) (int64, bool)
-	GetAllMetrics() (map[string]float64, map[string]int64)
-}
-
-// MemStorage реализует интерфейс Storage. хранилища в памяти
-type MemStorage struct {
-	mu       sync.RWMutex
-	gauges   map[string]float64
-	counters map[string]int64
-}
-
-// NewMemStorage создаёт новое хранилище
-func NewMemStorage() *MemStorage {
-	return &MemStorage{
-		gauges:   make(map[string]float64),
-		counters: make(map[string]int64),
-	}
-}
-
-// UpdateGauge устанавливает значение метрики типа gauge
-func (s *MemStorage) UpdateGauge(name string, value float64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.gauges[name] = value
-}
-
-// UpdateCounter увеличивает значение метрики типа counter
-func (s *MemStorage) UpdateCounter(name string, value int64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.counters[name] += value
-}
-
-func (s *MemStorage) GetGauge(name string) (float64, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	val, ok := s.gauges[name]
-	return val, ok
-}
-
-func (s *MemStorage) GetCounter(name string) (int64, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	val, ok := s.counters[name]
-	return val, ok
-}
-
-func (s *MemStorage) GetAllMetrics() (map[string]float64, map[string]int64) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// создаём копии, чтобы не отдавать оригинальные мапы
-	gaugeCopy := make(map[string]float64, len(s.gauges))
-	for k, v := range s.gauges {
-		gaugeCopy[k] = v
-	}
-	counterCopy := make(map[string]int64, len(s.counters))
-	for k, v := range s.counters {
-		counterCopy[k] = v
-	}
-	return gaugeCopy, counterCopy
-}
-
 // handler обрабатывает POST-запросы на /update/{type}/{name}/{value}
-func updateHandler(storage Storage) http.HandlerFunc {
+func updateHandler(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		metricType := chi.URLParam(r, "type")
@@ -102,7 +34,7 @@ func updateHandler(storage Storage) http.HandlerFunc {
 				http.Error(w, "Invalid gauge value", http.StatusBadRequest)
 				return
 			}
-			storage.UpdateGauge(name, value)
+			storage.UpdateGauge(r.Context(), name, value)
 
 		case "counter":
 			value, err := strconv.ParseInt(valueStr, 10, 64)
@@ -110,7 +42,7 @@ func updateHandler(storage Storage) http.HandlerFunc {
 				http.Error(w, "Invalid counter value", http.StatusBadRequest)
 				return
 			}
-			storage.UpdateCounter(name, value)
+			storage.UpdateCounter(r.Context(), name, value)
 
 		default:
 			http.Error(w, "Invalid metric type", http.StatusBadRequest)
@@ -122,7 +54,7 @@ func updateHandler(storage Storage) http.HandlerFunc {
 	}
 }
 
-func updateHandlerJSON(storage Storage) http.HandlerFunc {
+func updateHandlerJSON(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 
 		// десериализуем запрос в структуру модели
@@ -149,13 +81,13 @@ func updateHandlerJSON(storage Storage) http.HandlerFunc {
 				http.Error(w, "missing gauge value", http.StatusBadRequest)
 				return
 			}
-			storage.UpdateGauge(m.ID, *m.Value)
+			storage.UpdateGauge(r.Context(), m.ID, *m.Value)
 		case "counter":
 			if m.Delta == nil {
 				http.Error(w, "missing counter delta", http.StatusBadRequest)
 				return
 			}
-			storage.UpdateCounter(m.ID, *m.Delta)
+			storage.UpdateCounter(r.Context(), m.ID, *m.Delta)
 		default:
 			http.Error(w, "unknown metric type", http.StatusNotImplemented)
 			return
@@ -178,7 +110,7 @@ func updateHandlerJSON(storage Storage) http.HandlerFunc {
 	}
 }
 
-func valueHandlerJSON(storage Storage) http.HandlerFunc {
+func valueHandlerJSON(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var m models.Metrics
 		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
@@ -189,14 +121,14 @@ func valueHandlerJSON(storage Storage) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		switch m.MType {
 		case "gauge":
-			val, ok := storage.GetGauge(m.ID)
+			val, ok := storage.GetGauge(r.Context(), m.ID)
 			if !ok {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
 			}
 			m.Value = &val
 		case "counter":
-			val, ok := storage.GetCounter(m.ID)
+			val, ok := storage.GetCounter(r.Context(), m.ID)
 			if !ok {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
@@ -211,14 +143,14 @@ func valueHandlerJSON(storage Storage) http.HandlerFunc {
 }
 
 // GET /value/{type}/{name}
-func valueHandler(storage Storage) http.HandlerFunc {
+func valueHandler(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		metricType := chi.URLParam(r, "type")
 		name := chi.URLParam(r, "name")
 
 		switch metricType {
 		case "gauge":
-			val, ok := storage.GetGauge(name)
+			val, ok := storage.GetGauge(r.Context(), name)
 			if !ok {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
@@ -227,7 +159,7 @@ func valueHandler(storage Storage) http.HandlerFunc {
 			fmt.Fprint(w, strconv.FormatFloat(val, 'f', -1, 64))
 
 		case "counter":
-			val, ok := storage.GetCounter(name)
+			val, ok := storage.GetCounter(r.Context(), name)
 			if !ok {
 				http.Error(w, "not found", http.StatusNotFound)
 				return
@@ -242,9 +174,9 @@ func valueHandler(storage Storage) http.HandlerFunc {
 }
 
 // GET /
-func indexHandler(storage Storage) http.HandlerFunc {
+func indexHandler(storage repository.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		gauges, counters := storage.GetAllMetrics()
+		gauges, counters := storage.GetAllMetrics(r.Context())
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
@@ -278,7 +210,7 @@ func run() error {
 		return err
 	}
 
-	storage := NewMemStorage()
+	storage := repository.NewMemStorage()
 
 	r := chi.NewRouter()
 

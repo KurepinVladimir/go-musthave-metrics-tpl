@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/repository"
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 )
@@ -18,15 +20,15 @@ func TestUpdateHandler_TableDriven(t *testing.T) {
 		method     string
 		url        string
 		wantStatus int
-		check      func(t *testing.T, storage *MemStorage)
+		check      func(t *testing.T, storage *repository.MemStorage)
 	}{
 		{
 			name:       "Valid Gauge",
 			method:     http.MethodPost,
 			url:        "/update/gauge/testGauge/42.5",
 			wantStatus: http.StatusOK,
-			check: func(t *testing.T, storage *MemStorage) {
-				val, ok := storage.gauges["testGauge"]
+			check: func(t *testing.T, storage *repository.MemStorage) {
+				val, ok := storage.GetGauge(context.Background(), "testGauge")
 				assert.True(t, ok)
 				assert.Equal(t, 42.5, val)
 			},
@@ -36,8 +38,8 @@ func TestUpdateHandler_TableDriven(t *testing.T) {
 			method:     http.MethodPost,
 			url:        "/update/counter/testCounter/5",
 			wantStatus: http.StatusOK,
-			check: func(t *testing.T, storage *MemStorage) {
-				val, ok := storage.counters["testCounter"]
+			check: func(t *testing.T, storage *repository.MemStorage) {
+				val, ok := storage.GetCounter(context.Background(), "testCounter")
 				assert.True(t, ok)
 				assert.Equal(t, int64(5), val)
 			},
@@ -47,27 +49,27 @@ func TestUpdateHandler_TableDriven(t *testing.T) {
 			method:     http.MethodPost,
 			url:        "/update/unknown/test/123",
 			wantStatus: http.StatusBadRequest,
-			check:      func(t *testing.T, _ *MemStorage) {},
+			check:      func(t *testing.T, _ *repository.MemStorage) {},
 		},
 		{
 			name:       "Missing Metric Name",
 			method:     http.MethodPost,
 			url:        "/update/gauge//123",
 			wantStatus: http.StatusNotFound,
-			check:      func(t *testing.T, _ *MemStorage) {},
+			check:      func(t *testing.T, _ *repository.MemStorage) {},
 		},
 		{
 			name:       "Invalid Gauge Value",
 			method:     http.MethodPost,
 			url:        "/update/gauge/test/invalid",
 			wantStatus: http.StatusBadRequest,
-			check:      func(t *testing.T, _ *MemStorage) {},
+			check:      func(t *testing.T, _ *repository.MemStorage) {},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			storage := NewMemStorage()
+			storage := repository.NewMemStorage()
 			r := chi.NewRouter()
 			r.Post("/update/{type}/{name}/{value}", updateHandler(storage))
 
@@ -85,9 +87,9 @@ func TestUpdateHandler_TableDriven(t *testing.T) {
 }
 
 func TestGetValueHandler(t *testing.T) {
-	storage := NewMemStorage()
-	storage.UpdateGauge("myGauge", 42.5)
-	storage.UpdateCounter("myCounter", 5)
+	storage := repository.NewMemStorage()
+	storage.UpdateGauge(context.Background(), "myGauge", 42.5)
+	storage.UpdateCounter(context.Background(), "myCounter", 5)
 
 	r := chi.NewRouter()
 	r.Get("/value/{type}/{name}", valueHandler(storage))
@@ -124,9 +126,9 @@ func TestGetValueHandler(t *testing.T) {
 }
 
 func TestHTMLHandler(t *testing.T) {
-	storage := NewMemStorage()
-	storage.UpdateGauge("myGauge", 1.23)
-	storage.UpdateCounter("myCounter", 99)
+	storage := repository.NewMemStorage()
+	storage.UpdateGauge(context.Background(), "myGauge", 1.23)
+	storage.UpdateCounter(context.Background(), "myCounter", 99)
 
 	r := chi.NewRouter()
 	r.Get("/", indexHandler(storage))
@@ -147,7 +149,7 @@ func TestHTMLHandler(t *testing.T) {
 }
 
 func TestUpdateHandlerJSON(t *testing.T) {
-	storage := NewMemStorage()
+	storage := repository.NewMemStorage()
 	handler := updateHandlerJSON(storage)
 
 	tests := []struct {
@@ -161,7 +163,7 @@ func TestUpdateHandlerJSON(t *testing.T) {
 			input:      `{"id":"TestGauge","type":"gauge","value":123.456}`,
 			wantStatus: http.StatusOK,
 			check: func() error {
-				v, ok := storage.GetGauge("TestGauge")
+				v, ok := storage.GetGauge(context.Background(), "TestGauge")
 				if !ok || v != 123.456 {
 					return fmt.Errorf("expected 123.456, got %v (ok=%v)", v, ok)
 				}
@@ -173,7 +175,7 @@ func TestUpdateHandlerJSON(t *testing.T) {
 			input:      `{"id":"TestCounter","type":"counter","delta":5}`,
 			wantStatus: http.StatusOK,
 			check: func() error {
-				v, ok := storage.GetCounter("TestCounter")
+				v, ok := storage.GetCounter(context.Background(), "TestCounter")
 				if !ok || v != 5 {
 					return fmt.Errorf("expected 5, got %v (ok=%v)", v, ok)
 				}
@@ -215,9 +217,9 @@ func TestUpdateHandlerJSON(t *testing.T) {
 }
 
 func TestValueHandlerJSON(t *testing.T) {
-	storage := NewMemStorage()
-	storage.UpdateGauge("G1", 99.9)
-	storage.UpdateCounter("C1", 7)
+	storage := repository.NewMemStorage()
+	storage.UpdateGauge(context.Background(), "G1", 99.9)
+	storage.UpdateCounter(context.Background(), "C1", 7)
 
 	handler := valueHandlerJSON(storage)
 
