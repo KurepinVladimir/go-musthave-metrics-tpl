@@ -1,10 +1,12 @@
 package main
 
 import (
-	"fmt"
-	"math/rand"
+	"bytes"
+	"compress/gzip"
+	"encoding/json"
 
-	//"path"
+	//"fmt"
+	"math/rand"
 	"runtime"
 	"time"
 
@@ -20,9 +22,31 @@ var randomValue float64 // Значение случайной метрики
 // отправка метрики на сервер
 func sendMetricJSON(client *resty.Client, serverURL string, metric models.Metrics) error {
 
+	// Сериализуем метрику в JSON
+	var jsonBuf bytes.Buffer
+	if err := json.NewEncoder(&jsonBuf).Encode(metric); err != nil {
+		logger.Log.Debug("json encode error:", zap.Error(err))
+		return err
+	}
+
+	// Сжимаем JSON в gzip
+	var gzBuf bytes.Buffer
+	gz := gzip.NewWriter(&gzBuf)
+	if _, err := gz.Write(jsonBuf.Bytes()); err != nil {
+		logger.Log.Debug("gzip write error:", zap.Error(err))
+		return err
+	}
+	if err := gz.Close(); err != nil {
+		logger.Log.Debug("gzip close error:", zap.Error(err))
+		return err
+	}
+
+	// Отправляем сжатый JSON
 	resp, err := client.R().
 		SetHeader("Content-Type", "application/json").
-		SetBody(metric).
+		SetHeader("Content-Encoding", "gzip").
+		SetHeader("Accept-Encoding", "gzip"). // Говорим серверу: "Я поддерживаю сжатые ответы"
+		SetBody(gzBuf.Bytes()).
 		Post(serverURL + "/update")
 	if err != nil {
 		logger.Log.Debug("send error:", zap.Error(err))
@@ -103,7 +127,7 @@ func run() {
 			// // Увеличиваем счётчик обновлений
 			pollCount++
 
-			logger.Log.Debug("collected metrics", zap.Int("count", len(runtimeMetrics)))
+			//logger.Log.Debug("collected metrics", zap.Int("count", len(runtimeMetrics)))
 
 		case <-tickerReport.C:
 
@@ -125,7 +149,7 @@ func run() {
 				MType: "gauge",
 				Value: &value,
 			})
-			logger.Log.Debug("metrics reported", zap.String("RandomValue", fmt.Sprintf("%f", randomValue)))
+			//logger.Log.Debug("metrics reported", zap.String("RandomValue", fmt.Sprintf("%f", randomValue)))
 
 			// Отправка PollCount
 			delta := pollCount
@@ -134,7 +158,8 @@ func run() {
 				MType: "counter",
 				Delta: &delta,
 			})
-			logger.Log.Debug("metrics reported", zap.Int64("PollCount", pollCount))
+			//logger.Log.Debug("metrics reported", zap.Int64("PollCount", pollCount))
+			logger.Log.Debug("metrics reported")
 		}
 
 	}

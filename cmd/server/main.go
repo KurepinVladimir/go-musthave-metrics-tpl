@@ -67,14 +67,6 @@ func updateHandlerJSON(storage repository.Storage) http.HandlerFunc {
 			return
 		}
 
-		// заполняем модель ответа
-		// 	resp := models.Response{
-		// 		Response: models.ResponsePayload{
-		// 			Text: "Извините, я пока ничего не умею",
-		// 		},
-		// 		Version: "1.0",
-		// 	}
-
 		switch m.MType {
 		case "gauge":
 			if m.Value == nil {
@@ -216,6 +208,9 @@ func run() error {
 
 	//Use добавляет middleware ко всем маршрутам, зарегистрированным через chi.Router.
 	r.Use(logger.RequestLogger)
+	// Добавляем middleware для обработки gzip-запросов и ответов
+	r.Use(gzipRequestMiddleware)
+	r.Use(gzipResponseMiddleware)
 
 	r.Post("/update/{type}/{name}/{value}", updateHandler(storage)) // Регистрируем маршрут с параметрами
 

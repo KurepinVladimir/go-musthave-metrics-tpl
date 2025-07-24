@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"fmt"
 	"io"
@@ -268,4 +269,74 @@ func TestValueHandlerJSON(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Агент может отправить gzip-запрос
+func TestUpdateHandlerJSON_GzipRequest(t *testing.T) {
+	storage := repository.NewMemStorage()
+	handler := updateHandlerJSON(storage)
+
+	// JSON-метрика
+	input := `{"id":"GZGauge","type":"gauge","value":3.14}`
+
+	var buf strings.Builder
+	gz := gzip.NewWriter(&buf)
+	_, err := gz.Write([]byte(input))
+	assert.NoError(t, err)
+	assert.NoError(t, gz.Close())
+
+	req := httptest.NewRequest(http.MethodPost, "/update", strings.NewReader(buf.String()))
+	req.Header.Set("Content-Encoding", "gzip")
+	req.Header.Set("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	// Оборачиваем хендлер миддлварой
+	wrapped := gzipRequestMiddleware(handler)
+	wrapped.ServeHTTP(rr, req)
+
+	res := rr.Result()
+	defer res.Body.Close()
+
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+
+	v, ok := storage.GetGauge(context.Background(), "GZGauge")
+	assert.True(t, ok)
+	assert.Equal(t, 3.14, v)
+}
+
+// Сервер сжимает ответ, если клиент просит gzip
+func TestValueHandlerJSON_GzipResponse(t *testing.T) {
+	storage := repository.NewMemStorage()
+	storage.UpdateGauge(context.Background(), "GZGauge", 2.718)
+
+	handler := valueHandlerJSON(storage)
+
+	// JSON-запрос
+	body := `{"id":"GZGauge","type":"gauge"}`
+	req := httptest.NewRequest(http.MethodPost, "/value", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept-Encoding", "gzip")
+
+	rr := httptest.NewRecorder()
+
+	// Оборачиваем хендлер миддлварой
+	wrapped := gzipResponseMiddleware(handler)
+	wrapped.ServeHTTP(rr, req)
+
+	res := rr.Result()
+	defer res.Body.Close()
+
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	assert.Equal(t, "gzip", res.Header.Get("Content-Encoding"))
+
+	// Распаковываем ответ
+	gr, err := gzip.NewReader(res.Body)
+	assert.NoError(t, err)
+	defer gr.Close()
+
+	uncompressed, err := io.ReadAll(gr)
+	assert.NoError(t, err)
+
+	assert.Contains(t, string(uncompressed), `"value":2.718`)
 }
