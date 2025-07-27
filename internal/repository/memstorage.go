@@ -80,12 +80,12 @@ func (s *MemStorage) GetAllMetrics(_ context.Context) (map[string]float64, map[s
 	return gaugeCopy, counterCopy
 }
 
-func (m *MemStorage) SaveToFile(filename string) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (s *MemStorage) SaveToFile(filename string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	var metrics []models.Metrics
-	for id, value := range m.gauges {
+	for id, value := range s.gauges {
 		val := value
 		metrics = append(metrics, models.Metrics{
 			ID:    id,
@@ -93,7 +93,7 @@ func (m *MemStorage) SaveToFile(filename string) error {
 			Value: &val,
 		})
 	}
-	for id, delta := range m.counters {
+	for id, delta := range s.counters {
 		d := delta
 		metrics = append(metrics, models.Metrics{
 			ID:    id,
@@ -110,9 +110,9 @@ func (m *MemStorage) SaveToFile(filename string) error {
 	return os.WriteFile(filename, data, fs.FileMode(0666))
 }
 
-func (m *MemStorage) LoadFromFile(filename string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (s *MemStorage) LoadFromFile(filename string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	data, err := os.ReadFile(filename)
 	if err != nil {
@@ -131,11 +131,11 @@ func (m *MemStorage) LoadFromFile(filename string) error {
 		switch mtr.MType {
 		case "gauge":
 			if mtr.Value != nil {
-				m.gauges[mtr.ID] = *mtr.Value
+				s.gauges[mtr.ID] = *mtr.Value
 			}
 		case "counter":
 			if mtr.Delta != nil {
-				m.counters[mtr.ID] = *mtr.Delta
+				s.counters[mtr.ID] = *mtr.Delta
 			}
 		}
 	}
@@ -143,11 +143,11 @@ func (m *MemStorage) LoadFromFile(filename string) error {
 	return nil
 }
 
-func (m *MemStorage) PeriodicStore(filename string, interval time.Duration) {
+func (s *MemStorage) PeriodicStore(filename string, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		_ = m.SaveToFile(filename)
+		_ = s.SaveToFile(filename)
 	}
 }
