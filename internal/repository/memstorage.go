@@ -2,7 +2,14 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
 	"sync"
+	"time"
+
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 )
 
 // Storage описывает поведение хранилища метрик
@@ -71,4 +78,76 @@ func (s *MemStorage) GetAllMetrics(_ context.Context) (map[string]float64, map[s
 		counterCopy[k] = v
 	}
 	return gaugeCopy, counterCopy
+}
+
+func (m *MemStorage) SaveToFile(filename string) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var metrics []models.Metrics
+	for id, value := range m.gauges {
+		val := value
+		metrics = append(metrics, models.Metrics{
+			ID:    id,
+			MType: "gauge",
+			Value: &val,
+		})
+	}
+	for id, delta := range m.counters {
+		d := delta
+		metrics = append(metrics, models.Metrics{
+			ID:    id,
+			MType: "counter",
+			Delta: &d,
+		})
+	}
+
+	data, err := json.MarshalIndent(metrics, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filename, data, fs.FileMode(0666))
+}
+
+func (m *MemStorage) LoadFromFile(filename string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil // если файла нет — это не ошибка
+		}
+		return err
+	}
+
+	var metrics []models.Metrics
+	if err := json.Unmarshal(data, &metrics); err != nil {
+		return err
+	}
+
+	for _, mtr := range metrics {
+		switch mtr.MType {
+		case "gauge":
+			if mtr.Value != nil {
+				m.gauges[mtr.ID] = *mtr.Value
+			}
+		case "counter":
+			if mtr.Delta != nil {
+				m.counters[mtr.ID] = *mtr.Delta
+			}
+		}
+	}
+
+	return nil
+}
+
+func (m *MemStorage) PeriodicStore(filename string, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		_ = m.SaveToFile(filename)
+	}
 }
