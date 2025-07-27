@@ -5,12 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
-
-	"os/signal"
-	"syscall"
 
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
@@ -243,20 +239,20 @@ func run() error {
 	//log.Println("Starting server at", flagRunAddr)
 	logger.Log.Info("Running server", zap.String("address", flagRunAddr))
 
-	////
-	// обработка сигнала завершения
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-stop
-		logger.Log.Info("Received termination signal, saving metrics to file...")
-		if flagFileStoragePath != "" {
-			if err := storage.SaveToFile(flagFileStoragePath); err != nil {
-				logger.Log.Error("Failed to save metrics on shutdown", zap.Error(err))
-			}
-		}
-		os.Exit(0)
-	}()
+	// ////
+	// // обработка сигнала завершения
+	// stop := make(chan os.Signal, 1)
+	// signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	// go func() {
+	// 	<-stop
+	// 	logger.Log.Info("Received termination signal, saving metrics to file...")
+	// 	if flagFileStoragePath != "" {
+	// 		if err := storage.SaveToFile(flagFileStoragePath); err != nil {
+	// 			logger.Log.Error("Failed to save metrics on shutdown", zap.Error(err))
+	// 		}
+	// 	}
+	// 	os.Exit(0)
+	// }()
 
 	return http.ListenAndServe(flagRunAddr, r)
 	//return http.ListenAndServe(flagRunAddr, logger.RequestLogger(r))
