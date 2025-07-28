@@ -86,10 +86,6 @@ func updateHandlerJSON(storage repository.Storage) http.HandlerFunc {
 			return
 		}
 
-		// w.Header().Set("Content-Type", "application/json")
-		// w.WriteHeader(http.StatusOK)
-		// json.NewEncoder(w).Encode(m)
-
 		// установим правильный заголовок для типа данных
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -207,6 +203,7 @@ func run() error {
 
 	// загружаем метрики из файла, если включено
 	if flagRestore && flagFileStoragePath != "" {
+
 		if err := storage.LoadFromFile(flagFileStoragePath); err != nil {
 			logger.Log.Warn("Failed to restore metrics", zap.Error(err))
 		}
@@ -236,24 +233,7 @@ func run() error {
 	r.Get("/value/{type}/{name}", valueHandler(storage))
 	r.Get("/", indexHandler(storage))
 
-	//log.Println("Starting server at", flagRunAddr)
 	logger.Log.Info("Running server", zap.String("address", flagRunAddr))
 
-	// ////
-	// // обработка сигнала завершения
-	// stop := make(chan os.Signal, 1)
-	// signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	// go func() {
-	// 	<-stop
-	// 	logger.Log.Info("Received termination signal, saving metrics to file...")
-	// 	if flagFileStoragePath != "" {
-	// 		if err := storage.SaveToFile(flagFileStoragePath); err != nil {
-	// 			logger.Log.Error("Failed to save metrics on shutdown", zap.Error(err))
-	// 		}
-	// 	}
-	// 	os.Exit(0)
-	// }()
-
 	return http.ListenAndServe(flagRunAddr, r)
-	//return http.ListenAndServe(flagRunAddr, logger.RequestLogger(r))
 }
