@@ -67,38 +67,3 @@ func gzipRequestMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
-// // middleware для сжатия gzip-ответов
-// func gzipResponseMiddleware(next http.Handler) http.Handler {
-// 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-// 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
-// 			next.ServeHTTP(w, r)
-// 			return
-// 		}
-
-// 		gz := gzip.NewWriter(w)
-// 		defer gz.Close()
-
-// 		// w.Header().Set("Content-Encoding", "gzip")
-// 		gzw := gzipResponseWriter{ResponseWriter: w, Writer: gz}
-// 		next.ServeHTTP(gzw, r)
-// 	})
-// }
-
-// type gzipResponseWriter struct {
-// 	http.ResponseWriter
-// 	Writer io.Writer
-// }
-
-// func (w gzipResponseWriter) Write(b []byte) (int, error) {
-// 	ct := w.Header().Get("Content-Type")
-// 	if !strings.HasPrefix(ct, "application/json") && !strings.HasPrefix(ct, "text/html") {
-// 		w.Header().Del("Content-Encoding") // Удаляем, если не будем сжимать
-// 		return w.ResponseWriter.Write(b)
-// 	}
-
-// 	// Устанавливаем заголовок только при реальном сжатии
-// 	w.Header().Set("Content-Encoding", "gzip")
-
-// 	return w.Writer.Write(b)
-// }

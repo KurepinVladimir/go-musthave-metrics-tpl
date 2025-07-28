@@ -3,12 +3,7 @@ package main
 import (
 	"flag"
 	"log"
-
-	//"os"
-	//"strconv"
 	"strings"
-
-	//"time"
 
 	"github.com/caarlos0/env/v6"
 )
@@ -20,12 +15,6 @@ var (
 	flagPollInterval   int64
 )
 
-// type Config struct {
-// 	RunAddr        string        `env:"ADDRESS"`
-// 	ReportInterval time.Duration `env:"REPORT_INTERVAL"`
-// 	PollInterval   time.Duration `env:"POLL_INTERVAL"`
-// }
-
 type Config struct {
 	RunAddr        string `env:"ADDRESS"`
 	ReportInterval int    `env:"REPORT_INTERVAL"`
@@ -33,15 +22,10 @@ type Config struct {
 }
 
 // parseFlags обрабатывает аргументы командной строки
-// и сохраняет их значения в соответствующих переменных
 func parseFlags() {
 
-	// регистрируем переменную flagRunAddr как аргумент -a со значением :8080 по умолчанию
-	// Флаг -a=<ЗНАЧЕНИЕ> отвечает за адрес эндпоинта HTTP-сервера (по умолчанию localhost:8080).
-	//flag.StringVar(&flagRunAddr, "a", ":8080", "address and port")
-	//flag.StringVar(&flagRunAddr, "a", "http://localhost:8080/update", "address and port")
-	//flag.StringVar(&flagRunAddr, "a", "localhost:8080", "address and port")
-	//flag.StringVar(&flagRunAddr, "a", ":8080", "address and port")
+	// регистрируем переменную flagRunAddr как аргумент -a со значением по умолчанию
+	// Флаг -a=<ЗНАЧЕНИЕ> отвечает за адрес эндпоинта HTTP-сервера (по умолчанию localhost:8080). (":8080", "http://localhost:8080/update", "localhost:8080")
 	flag.StringVar(&flagRunAddr, "a", "http://localhost:8080", "address and port")
 
 	// Флаг -r=<ЗНАЧЕНИЕ> позволяет переопределять reportInterval — частоту отправки метрик на сервер (по умолчанию 10 секунд).
@@ -71,21 +55,17 @@ func parseFlags() {
 	}
 
 	if envRunAddr := cfg.RunAddr; envRunAddr != "" {
-
 		flagRunAddr = envRunAddr
-
 		if !strings.HasPrefix(flagRunAddr, "http://") && !strings.HasPrefix(flagRunAddr, "https://") {
 			flagRunAddr = "http://" + flagRunAddr
 		}
 	}
 
 	if envReportInterval := cfg.ReportInterval; envReportInterval != 0 {
-		//flagReportInterval = int64(envReportInterval.Seconds())
 		flagReportInterval = int64(envReportInterval)
 	}
 
 	if envPollInterval := cfg.PollInterval; envPollInterval != 0 {
-		//flagPollInterval = int64(envPollInterval.Seconds())
 		flagPollInterval = int64(envPollInterval)
 	}
 

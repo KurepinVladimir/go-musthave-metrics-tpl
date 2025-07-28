@@ -2,13 +2,10 @@ package main
 
 import (
 	"compress/gzip"
-	"math/rand"
-	"net/http"
-	"net/http/httptest"
-	"runtime"
-
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
@@ -16,15 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func collectRuntimeMetrics(metrics map[string]float64) {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	metrics["Alloc"] = float64(m.Alloc)
-	metrics["TotalAlloc"] = float64(m.TotalAlloc)
-	metrics["NumGC"] = float64(m.NumGC)
-	metrics["RandomValue"] = rand.Float64()
-}
 func TestSendMetricJSON(t *testing.T) {
 	// Ожидаемая метрика, которую будем отправлять
 	expectedMetric := models.Metrics{
@@ -64,9 +52,6 @@ func TestSendMetricJSON(t *testing.T) {
 		assert.NotNil(t, received.Value)
 		assert.Equal(t, *expectedMetric.Value, *received.Value)
 
-		//// Отвечаем клиенту 200 OK
-		//w.WriteHeader(http.StatusOK)
-
 		// Подготовим JSON-ответ (можно пустой или с каким-то сообщением)
 		response := map[string]string{"status": "ok"}
 		respBody, err := json.Marshal(response)
@@ -99,23 +84,27 @@ func TestSendMetricJSON(t *testing.T) {
 	client := resty.New()
 
 	// Вызываем тестируемую функцию: она должна отправить метрику в gzip
-	err := sendMetricJSON(client, ts.URL, expectedMetric)
+	agent := &Agent{
+		Client:    client,
+		ServerURL: ts.URL,
+	}
+	err := agent.sendMetricJSON(expectedMetric)
 
 	// Проверяем, что ошибок не было
 	assert.NoError(t, err)
 }
 
 func TestCollectRuntimeMetrics(t *testing.T) {
-	metrics := make(map[string]float64)
-	collectRuntimeMetrics(metrics)
+	agent := NewAgent("http://localhost")
+	agent.collectMetrics()
 
-	expectedKeys := []string{"Alloc", "TotalAlloc", "RandomValue", "NumGC"}
+	expectedKeys := []string{"Alloc", "TotalAlloc", "NextGC", "NumGC"}
 	for _, key := range expectedKeys {
-		_, ok := metrics[key]
+		_, ok := agent.Metrics[key]
 		assert.True(t, ok, "Expected metric %s not found", key)
 	}
 
-	assert.GreaterOrEqual(t, metrics["RandomValue"], 0.0)
-	assert.LessOrEqual(t, metrics["RandomValue"], 1.0)
-	assert.GreaterOrEqual(t, metrics["NumGC"], 0.0)
+	assert.GreaterOrEqual(t, agent.RandomValue, 0.0)
+	assert.LessOrEqual(t, agent.RandomValue, 1.0)
+	assert.GreaterOrEqual(t, agent.Metrics["NumGC"], 0.0)
 }

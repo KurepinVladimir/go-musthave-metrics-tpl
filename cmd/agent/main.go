@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
-
-	//"fmt"
 	"math/rand"
 	"runtime"
 	"time"
@@ -16,11 +14,26 @@ import (
 	"go.uber.org/zap"
 )
 
-var pollCount int64     // Счётчик обновлений метрик
-var randomValue float64 // Значение случайной метрики
+// Agent инкапсулирует состояние и поведение агента для сбора и отправки метрик на сервер
+type Agent struct {
+	PollCount   int64              // счётчик обновлений метрик
+	RandomValue float64            // случайное значение метрики
+	Metrics     map[string]float64 // метрики типа gauge из runtime
+	Client      *resty.Client      // HTTP-клиент
+	ServerURL   string             // адрес сервера
+}
 
-// отправка метрики на сервер
-func sendMetricJSON(client *resty.Client, serverURL string, metric models.Metrics) error {
+// NewAgent создаёт и возвращает новый экземпляр агента
+func NewAgent(serverURL string) *Agent {
+	return &Agent{
+		Metrics:   make(map[string]float64), // инициализируем хранилище метрик
+		Client:    resty.New(),              // Создаём HTTP-клиент resty
+		ServerURL: serverURL,                // Адрес сервера, куда будем отправлять метрики
+	}
+}
+
+// sendMetricJSON отправляет одну метрику на сервер в формате JSON, сжатом через gzip
+func (a *Agent) sendMetricJSON(metric models.Metrics) error {
 
 	// Сериализуем метрику в JSON
 	var jsonBuf bytes.Buffer
@@ -42,12 +55,12 @@ func sendMetricJSON(client *resty.Client, serverURL string, metric models.Metric
 	}
 
 	// Отправляем сжатый JSON
-	resp, err := client.R().
+	resp, err := a.Client.R().
 		SetHeader("Content-Type", "application/json").
 		SetHeader("Content-Encoding", "gzip").
 		SetHeader("Accept-Encoding", "gzip"). // Говорим серверу: "Я поддерживаю сжатые ответы"
 		SetBody(gzBuf.Bytes()).
-		Post(serverURL + "/update")
+		Post(a.ServerURL + "/update")
 	if err != nil {
 		logger.Log.Debug("send error:", zap.Error(err))
 		return err
@@ -59,108 +72,97 @@ func sendMetricJSON(client *resty.Client, serverURL string, metric models.Metric
 	}
 	logger.Log.Debug("metric sent", zap.String("id", metric.ID), zap.String("type", metric.MType))
 	return nil
+}
 
+// collectMetrics собирает метрики из runtime и обновляет состояние агента
+func (a *Agent) collectMetrics() {
+
+	var m runtime.MemStats   // Считываем текущие значения метрик
+	runtime.ReadMemStats(&m) // Обновляем метрики в агенте
+
+	// обновляем runtime метрики
+	a.Metrics["Alloc"] = float64(m.Alloc)
+	a.Metrics["BuckHashSys"] = float64(m.BuckHashSys)
+	a.Metrics["Frees"] = float64(m.Frees)
+	a.Metrics["GCCPUFraction"] = m.GCCPUFraction
+	a.Metrics["GCSys"] = float64(m.GCSys)
+	a.Metrics["HeapAlloc"] = float64(m.HeapAlloc)
+	a.Metrics["HeapIdle"] = float64(m.HeapIdle)
+	a.Metrics["HeapInuse"] = float64(m.HeapInuse)
+	a.Metrics["HeapObjects"] = float64(m.HeapObjects)
+	a.Metrics["HeapReleased"] = float64(m.HeapReleased)
+	a.Metrics["HeapSys"] = float64(m.HeapSys)
+	a.Metrics["LastGC"] = float64(m.LastGC)
+	a.Metrics["Lookups"] = float64(m.Lookups)
+	a.Metrics["MCacheInuse"] = float64(m.MCacheInuse)
+	a.Metrics["MCacheSys"] = float64(m.MCacheSys)
+	a.Metrics["MSpanInuse"] = float64(m.MSpanInuse)
+	a.Metrics["MSpanSys"] = float64(m.MSpanSys)
+	a.Metrics["Mallocs"] = float64(m.Mallocs)
+	a.Metrics["NextGC"] = float64(m.NextGC)
+	a.Metrics["NumForcedGC"] = float64(m.NumForcedGC)
+	a.Metrics["NumGC"] = float64(m.NumGC)
+	a.Metrics["OtherSys"] = float64(m.OtherSys)
+	a.Metrics["PauseTotalNs"] = float64(m.PauseTotalNs)
+	a.Metrics["StackInuse"] = float64(m.StackInuse)
+	a.Metrics["StackSys"] = float64(m.StackSys)
+	a.Metrics["Sys"] = float64(m.Sys)
+	a.Metrics["TotalAlloc"] = float64(m.TotalAlloc)
+
+	a.RandomValue = rand.Float64() // Обновляем случайное значение метрики
+	a.PollCount++                  // Увеличиваем счётчик обновлений
+}
+
+// reportMetrics отправляет все собранные метрики на сервер
+func (a *Agent) reportMetrics() {
+
+	for name, val := range a.Metrics {
+		value := val
+		metric := models.Metrics{
+			ID:    name,
+			MType: "gauge",
+			Value: &value,
+		}
+		_ = a.sendMetricJSON(metric) // намеренно игнорируем ошибку, но логируем
+	}
+
+	random := a.RandomValue
+	_ = a.sendMetricJSON(models.Metrics{ // намеренно игнорируем ошибку, но логируем
+		ID:    "RandomValue",
+		MType: "gauge",
+		Value: &random,
+	})
+
+	poll := a.PollCount
+	_ = a.sendMetricJSON(models.Metrics{ // намеренно игнорируем ошибку, но логируем
+		ID:    "PollCount",
+		MType: "counter",
+		Delta: &poll,
+	})
+
+	logger.Log.Debug("metrics reported")
 }
 
 func main() {
-	// обрабатываем аргументы командной строки
-	parseFlags()
-	run()
-}
 
-func run() {
+	parseFlags() // обрабатываем аргументы командной строки
 
+	// запускаем агента
 	reportInterval := time.Duration(flagReportInterval) * time.Second // Интервал отправки метрик на сервер, по умолчанию 10 секунд
 	pollInterval := time.Duration(flagPollInterval) * time.Second     // Интервал обновления метрик, по умолчанию 2 секунды
 
-	// Создаём HTTP-клиент resty
-	client := resty.New()
-
-	// Хранилище runtime метрик
-	runtimeMetrics := make(map[string]float64)
-
-	// Таймеры для обновления и отправки метрик
-	tickerPoll := time.NewTicker(pollInterval)
-	tickerReport := time.NewTicker(reportInterval)
+	agent := NewAgent(flagRunAddr)                 // Создаём нового агента с адресом сервера
+	tickerPoll := time.NewTicker(pollInterval)     // Таймер для обновления метрик
+	tickerReport := time.NewTicker(reportInterval) // Таймер для отправки метрик
 	defer tickerPoll.Stop()
 	defer tickerReport.Stop()
 
 	for {
 		select {
 		case <-tickerPoll.C:
-
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m) // Считываем текущие значения метрик
-
-			// обновляем runtime метрики
-			runtimeMetrics["Alloc"] = float64(m.Alloc)
-			runtimeMetrics["BuckHashSys"] = float64(m.BuckHashSys)
-			runtimeMetrics["Frees"] = float64(m.Frees)
-			runtimeMetrics["GCCPUFraction"] = m.GCCPUFraction
-			runtimeMetrics["GCSys"] = float64(m.GCSys)
-			runtimeMetrics["HeapAlloc"] = float64(m.HeapAlloc)
-			runtimeMetrics["HeapIdle"] = float64(m.HeapIdle)
-			runtimeMetrics["HeapInuse"] = float64(m.HeapInuse)
-			runtimeMetrics["HeapObjects"] = float64(m.HeapObjects)
-			runtimeMetrics["HeapReleased"] = float64(m.HeapReleased)
-			runtimeMetrics["HeapSys"] = float64(m.HeapSys)
-			runtimeMetrics["LastGC"] = float64(m.LastGC)
-			runtimeMetrics["Lookups"] = float64(m.Lookups)
-			runtimeMetrics["MCacheInuse"] = float64(m.MCacheInuse)
-			runtimeMetrics["MCacheSys"] = float64(m.MCacheSys)
-			runtimeMetrics["MSpanInuse"] = float64(m.MSpanInuse)
-			runtimeMetrics["MSpanSys"] = float64(m.MSpanSys)
-			runtimeMetrics["Mallocs"] = float64(m.Mallocs)
-			runtimeMetrics["NextGC"] = float64(m.NextGC)
-			runtimeMetrics["NumForcedGC"] = float64(m.NumForcedGC)
-			runtimeMetrics["NumGC"] = float64(m.NumGC)
-			runtimeMetrics["OtherSys"] = float64(m.OtherSys)
-			runtimeMetrics["PauseTotalNs"] = float64(m.PauseTotalNs)
-			runtimeMetrics["StackInuse"] = float64(m.StackInuse)
-			runtimeMetrics["StackSys"] = float64(m.StackSys)
-			runtimeMetrics["Sys"] = float64(m.Sys)
-			runtimeMetrics["TotalAlloc"] = float64(m.TotalAlloc)
-
-			// // Обновляем RandomValue
-			randomValue = rand.Float64()
-
-			// // Увеличиваем счётчик обновлений
-			pollCount++
-
-			//logger.Log.Debug("collected metrics", zap.Int("count", len(runtimeMetrics)))
-
+			agent.collectMetrics() // Сбор метрик из runtime и обновление состояния агента
 		case <-tickerReport.C:
-
-			// Отправка runtime метрик
-			for name, val := range runtimeMetrics {
-				value := val
-				metric := models.Metrics{
-					ID:    name,
-					MType: "gauge",
-					Value: &value,
-				}
-				_ = sendMetricJSON(client, flagRunAddr, metric)
-			}
-
-			// Отправка RandomValue
-			value := randomValue
-			_ = sendMetricJSON(client, flagRunAddr, models.Metrics{
-				ID:    "RandomValue",
-				MType: "gauge",
-				Value: &value,
-			})
-			//logger.Log.Debug("metrics reported", zap.String("RandomValue", fmt.Sprintf("%f", randomValue)))
-
-			// Отправка PollCount
-			delta := pollCount
-			_ = sendMetricJSON(client, flagRunAddr, models.Metrics{
-				ID:    "PollCount",
-				MType: "counter",
-				Delta: &delta,
-			})
-			//logger.Log.Debug("metrics reported", zap.Int64("PollCount", pollCount))
-			logger.Log.Debug("metrics reported")
+			agent.reportMetrics() // Отправка собранных метрик на сервер
 		}
-
 	}
 }
