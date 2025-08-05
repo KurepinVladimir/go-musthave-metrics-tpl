@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/repository"
 	"github.com/go-chi/chi/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 )
 
@@ -181,6 +183,63 @@ func indexHandler(storage repository.Storage) http.HandlerFunc {
 	}
 }
 
+//// GET /
+// func pingHandler(db *sql.DB) http.HandlerFunc {
+// 	return func(w http.ResponseWriter, r *http.Request) {
+
+// 		// Проверяем соединение с базой данных
+// 		conn, err := pgx.Connect(context.Background(), flagDatabaseDSN)
+// 		//conn, err := pgx.Connect(context.Background(), "postgres://videos:userpassword@localhost:5432/videos")
+// 		if err != nil {
+// 			panic(err)
+// 		}
+// 		defer conn.Close(context.Background())
+
+// 		if db == nil {
+// 			http.Error(w, "DB not configured", http.StatusInternalServerError)
+// 			return
+// 		}
+// 		if err := db.PingContext(r.Context()); err != nil {
+// 			http.Error(w, "DB not available", http.StatusInternalServerError)
+// 			return
+// 		}
+// 		w.WriteHeader(http.StatusOK)
+// 		fmt.Fprint(w, "pong")
+
+// 	}
+// }
+
+func pingHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if db == nil {
+			http.Error(w, "DB not configured", http.StatusInternalServerError)
+			return
+		}
+		if err := db.PingContext(r.Context()); err != nil {
+			http.Error(w, "DB not available", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "pong")
+	}
+}
+
+func initPostgres(dsn string) (*sql.DB, error) {
+	if dsn == "" {
+		return nil, nil // режим без БД
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open DB: %w", err)
+	}
+	if err = db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping DB: %w", err)
+	}
+	logger.Log.Info("Connected to PostgreSQL successfully")
+	return db, nil
+}
+
 func main() {
 
 	// обрабатываем аргументы командной строки
@@ -196,6 +255,11 @@ func main() {
 func run() error {
 
 	if err := logger.Initialize("INFO"); err != nil {
+		return err
+	}
+
+	db, err := initPostgres(flagDatabaseDSN)
+	if err != nil {
 		return err
 	}
 
@@ -232,6 +296,10 @@ func run() error {
 
 	r.Get("/value/{type}/{name}", valueHandler(storage))
 	r.Get("/", indexHandler(storage))
+
+	if db != nil {
+		r.Get("/ping", pingHandler(db)) //проверяет соединение с базой данных.
+	}
 
 	logger.Log.Info("Running server", zap.String("address", flagRunAddr))
 
