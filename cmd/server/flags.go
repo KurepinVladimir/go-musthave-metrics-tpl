@@ -30,7 +30,7 @@ func parseFlags() {
 	flag.Int64Var(&flagStoreInterval, "i", 300, "storage interval in seconds")
 	flag.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.json", "file storage path")
 	flag.BoolVar(&flagRestore, "r", false, "restore from file storage")
-	flag.StringVar(&flagDatabaseDSN, "d", "postgres://admin:admin@localhost:5432/videos", "database DSN for persistent storage")
+	flag.StringVar(&flagDatabaseDSN, "d", "", "database DSN for persistent storage") // postgres://admin:admin@localhost:5432/videos
 
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
