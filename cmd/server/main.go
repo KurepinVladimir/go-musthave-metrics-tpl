@@ -13,6 +13,7 @@ import (
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/repository"
 	"github.com/go-chi/chi/v5"
+
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 )
@@ -183,32 +184,7 @@ func indexHandler(storage repository.Storage) http.HandlerFunc {
 	}
 }
 
-//// GET /
-// func pingHandler(db *sql.DB) http.HandlerFunc {
-// 	return func(w http.ResponseWriter, r *http.Request) {
-
-// 		// Проверяем соединение с базой данных
-// 		conn, err := pgx.Connect(context.Background(), flagDatabaseDSN)
-// 		//conn, err := pgx.Connect(context.Background(), "postgres://videos:userpassword@localhost:5432/videos")
-// 		if err != nil {
-// 			panic(err)
-// 		}
-// 		defer conn.Close(context.Background())
-
-// 		if db == nil {
-// 			http.Error(w, "DB not configured", http.StatusInternalServerError)
-// 			return
-// 		}
-// 		if err := db.PingContext(r.Context()); err != nil {
-// 			http.Error(w, "DB not available", http.StatusInternalServerError)
-// 			return
-// 		}
-// 		w.WriteHeader(http.StatusOK)
-// 		fmt.Fprint(w, "pong")
-
-// 	}
-// }
-
+// GET /
 func pingHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if db == nil {
@@ -263,20 +239,41 @@ func run() error {
 		return err
 	}
 
-	storage := repository.NewMemStorage()
+	if db != nil {
+		if err := repository.RunMigrations(flagDatabaseDSN); err != nil {
+			return fmt.Errorf("failed to run migrations: %w", err)
+		}
+	}
+
+	//storage := repository.NewMemStorage()
+	var storage repository.Storage
+	if db != nil {
+		storage = repository.NewPostgresStorage(db)
+	} else {
+		storage = repository.NewMemStorage()
+	}
+
+	//if db == nil {
 
 	// загружаем метрики из файла, если включено
-	if flagRestore && flagFileStoragePath != "" {
+	// if flagRestore && flagFileStoragePath != "" {
+	// 	if err := storage.LoadFromFile(flagFileStoragePath); err != nil {
+	// 		logger.Log.Warn("Failed to restore metrics", zap.Error(err))
+	// 	}
+	// }
 
-		if err := storage.LoadFromFile(flagFileStoragePath); err != nil {
+	if memStorage, ok := storage.(*repository.MemStorage); ok && flagRestore && flagFileStoragePath != "" {
+		if err := memStorage.LoadFromFile(flagFileStoragePath); err != nil {
 			logger.Log.Warn("Failed to restore metrics", zap.Error(err))
 		}
 	}
 
 	// запуск периодического сохранения, если установлен интервал > 0
-	if flagStoreInterval > 0 && flagFileStoragePath != "" {
-		go storage.PeriodicStore(flagFileStoragePath, time.Duration(flagStoreInterval)*time.Second)
+	if memStorage, ok := storage.(*repository.MemStorage); ok && flagStoreInterval > 0 && flagFileStoragePath != "" {
+		go memStorage.PeriodicStore(flagFileStoragePath, time.Duration(flagStoreInterval)*time.Second)
 	}
+
+	//}
 
 	r := chi.NewRouter()
 
