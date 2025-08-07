@@ -26,12 +26,12 @@ func (p *PostgresStorage) UpdateGauge(ctx context.Context, name string, value fl
 	`, name, value)
 }
 
-func (p *PostgresStorage) UpdateCounter(ctx context.Context, name string, delta int64) {
+func (p *PostgresStorage) UpdateCounter(ctx context.Context, name string, value int64) {
 	_, _ = p.db.ExecContext(ctx, `
-		INSERT INTO counter_metrics (name, delta)
+		INSERT INTO counter_metrics (name, value)
 		VALUES ($1, $2)
-		ON CONFLICT (name) DO UPDATE SET delta = counter_metrics.delta + EXCLUDED.delta
-	`, name, delta)
+		ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value
+	`, name, value)
 }
 
 func (p *PostgresStorage) GetGauge(ctx context.Context, name string) (float64, bool) {
@@ -45,7 +45,7 @@ func (p *PostgresStorage) GetGauge(ctx context.Context, name string) (float64, b
 
 func (p *PostgresStorage) GetCounter(ctx context.Context, name string) (int64, bool) {
 	var val int64
-	err := p.db.QueryRowContext(ctx, `SELECT delta FROM counter_metrics WHERE name = $1`, name).Scan(&val)
+	err := p.db.QueryRowContext(ctx, `SELECT value FROM counter_metrics WHERE name = $1`, name).Scan(&val)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false
 	}
@@ -65,10 +65,13 @@ func (p *PostgresStorage) GetAllMetrics(ctx context.Context) (map[string]float64
 			if err := rows.Scan(&name, &val); err == nil {
 				gauges[name] = val
 			}
+			if err := rows.Err(); err != nil {
+				return nil, nil
+			}
 		}
 	}
 
-	rows, err = p.db.QueryContext(ctx, `SELECT name, delta FROM counter_metrics`)
+	rows, err = p.db.QueryContext(ctx, `SELECT name, value FROM counter_metrics`)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -76,6 +79,9 @@ func (p *PostgresStorage) GetAllMetrics(ctx context.Context) (map[string]float64
 			var val int64
 			if err := rows.Scan(&name, &val); err == nil {
 				counters[name] = val
+			}
+			if err := rows.Err(); err != nil {
+				return nil, nil
 			}
 		}
 	}
