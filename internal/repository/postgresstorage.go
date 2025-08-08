@@ -115,9 +115,7 @@ func (p *PostgresStorage) UpdateBatch(ctx context.Context, batch []models.Metric
 			_, err = tx.ExecContext(ctx, `
 				INSERT INTO counter_metrics (name, value)
 				VALUES ($1, $2)
-				ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
-				-- если должна быть «накопительная» семантика:
-				-- ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value
+				ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value
 			`, m.ID, *m.Delta)
 		}
 		if err != nil {

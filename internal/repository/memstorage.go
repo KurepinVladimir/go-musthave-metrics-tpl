@@ -173,7 +173,7 @@ func (s *MemStorage) UpdateBatch(ctx context.Context, batch []models.Metrics) er
 				continue
 			}
 
-			s.counters[met.ID] += *met.Delta //= *met.Value
+			s.counters[met.ID] += *met.Delta
 		}
 	}
 	return nil
