@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/handler"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/repository"
@@ -245,7 +246,6 @@ func run() error {
 		}
 	}
 
-	//storage := repository.NewMemStorage()
 	var storage repository.Storage
 	if db != nil {
 		storage = repository.NewPostgresStorage(db)
@@ -253,15 +253,7 @@ func run() error {
 		storage = repository.NewMemStorage()
 	}
 
-	//if db == nil {
-
 	// загружаем метрики из файла, если включено
-	// if flagRestore && flagFileStoragePath != "" {
-	// 	if err := storage.LoadFromFile(flagFileStoragePath); err != nil {
-	// 		logger.Log.Warn("Failed to restore metrics", zap.Error(err))
-	// 	}
-	// }
-
 	if memStorage, ok := storage.(*repository.MemStorage); ok && flagRestore && flagFileStoragePath != "" {
 		if err := memStorage.LoadFromFile(flagFileStoragePath); err != nil {
 			logger.Log.Warn("Failed to restore metrics", zap.Error(err))
@@ -272,8 +264,6 @@ func run() error {
 	if memStorage, ok := storage.(*repository.MemStorage); ok && flagStoreInterval > 0 && flagFileStoragePath != "" {
 		go memStorage.PeriodicStore(flagFileStoragePath, time.Duration(flagStoreInterval)*time.Second)
 	}
-
-	//}
 
 	r := chi.NewRouter()
 
@@ -287,6 +277,9 @@ func run() error {
 
 	r.Post("/update", updateHandlerJSON(storage))
 	r.Post("/update/", updateHandlerJSON(storage))
+
+	r.Post("/updates", handler.UpdatesHandler(storage))
+	r.Post("/updates/", handler.UpdatesHandler(storage))
 
 	r.Post("/value", valueHandlerJSON(storage))
 	r.Post("/value/", valueHandlerJSON(storage))
