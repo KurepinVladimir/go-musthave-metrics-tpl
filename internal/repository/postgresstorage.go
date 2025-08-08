@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -87,4 +88,41 @@ func (p *PostgresStorage) GetAllMetrics(ctx context.Context) (map[string]float64
 	}
 
 	return gauges, counters
+}
+
+func (p *PostgresStorage) UpdateBatch(ctx context.Context, batch []models.Metrics) error {
+	tx, err := p.db.BeginTx(ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, m := range batch {
+		switch m.MType {
+		case "gauge":
+			if m.Value == nil {
+				continue
+			}
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO gauge_metrics (name, value)
+				VALUES ($1, $2)
+				ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
+			`, m.ID, *m.Value)
+		case "counter":
+			if m.Delta == nil {
+				continue
+			}
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO counter_metrics (name, value)
+				VALUES ($1, $2)
+				ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
+				-- если должна быть «накопительная» семантика:
+				-- ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value
+			`, m.ID, *m.Delta)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
