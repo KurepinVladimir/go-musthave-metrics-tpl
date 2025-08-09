@@ -7,6 +7,14 @@ import (
 
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 	_ "github.com/jackc/pgx/v5/stdlib"
+
+	"fmt"
+	"time"
+
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/pgerrors"
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/retry"
+	"go.uber.org/zap"
 )
 
 type PostgresStorage struct {
@@ -19,20 +27,36 @@ func NewPostgresStorage(db *sql.DB) *PostgresStorage {
 	}
 }
 
+var pgDelays = []time.Duration{time.Second, 3 * time.Second, 5 * time.Second}
+
+func (p *PostgresStorage) execWithRetry(ctx context.Context, query string, args ...any) error {
+	return retry.DoIf(ctx, pgDelays, func(ctx context.Context) error {
+		_, err := p.db.ExecContext(ctx, query, args...)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "pg exec", err)
+		}
+		return nil
+	}, pgerrors.IsRetriable)
+}
+
 func (p *PostgresStorage) UpdateGauge(ctx context.Context, name string, value float64) {
-	_, _ = p.db.ExecContext(ctx, `
+	if err := p.execWithRetry(ctx, `
 		INSERT INTO gauge_metrics (name, value)
 		VALUES ($1, $2)
 		ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
-	`, name, value)
+	`, name, value); err != nil {
+		logger.Log.Error("update gauge failed", zap.Error(err))
+	}
 }
 
-func (p *PostgresStorage) UpdateCounter(ctx context.Context, name string, value int64) {
-	_, _ = p.db.ExecContext(ctx, `
+func (p *PostgresStorage) UpdateCounter(ctx context.Context, name string, delta int64) {
+	if err := p.execWithRetry(ctx, `
 		INSERT INTO counter_metrics (name, value)
 		VALUES ($1, $2)
 		ON CONFLICT (name) DO UPDATE SET value = counter_metrics.value + EXCLUDED.value
-	`, name, value)
+	`, name, delta); err != nil {
+		logger.Log.Error("update counter failed", zap.Error(err))
+	}
 }
 
 func (p *PostgresStorage) GetGauge(ctx context.Context, name string) (float64, bool) {
