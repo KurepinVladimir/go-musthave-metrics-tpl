@@ -102,8 +102,6 @@ func (a *Agent) sendMetricJSON(metric models.Metrics) error {
 		return true
 	})
 
-	//logger.Log.Debug("metric sent", zap.String("id", metric.ID), zap.String("type", metric.MType))
-	//return nil
 }
 
 // collectMetrics собирает метрики из runtime и обновляет состояние агента
