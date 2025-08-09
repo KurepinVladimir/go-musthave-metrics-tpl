@@ -3,16 +3,24 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math/rand"
+	"net"
+	"net/http"
 	"runtime"
 	"time"
 
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/retry"
 	"github.com/go-resty/resty/v2"
 	"go.uber.org/zap"
 )
+
+var httpDelays = []time.Duration{time.Second, 3 * time.Second, 5 * time.Second}
 
 // Agent инкапсулирует состояние и поведение агента для сбора и отправки метрик на сервер
 type Agent struct {
@@ -55,23 +63,47 @@ func (a *Agent) sendMetricJSON(metric models.Metrics) error {
 	}
 
 	// Отправляем сжатый JSON
-	resp, err := a.Client.R().
-		SetHeader("Content-Type", "application/json").
-		SetHeader("Content-Encoding", "gzip").
-		SetHeader("Accept-Encoding", "gzip"). // Говорим серверу: "Я поддерживаю сжатые ответы"
-		SetBody(gzBuf.Bytes()).
-		Post(a.ServerURL + "/update")
-	if err != nil {
-		logger.Log.Debug("send error:", zap.Error(err))
-		return err
-	}
+	return retry.DoIf(context.Background(), httpDelays, func(ctx context.Context) error {
+		resp, err := a.Client.R().
+			SetContext(ctx).
+			SetHeader("Content-Type", "application/json").
+			SetHeader("Content-Encoding", "gzip").
+			SetHeader("Accept-Encoding", "gzip").
+			SetBody(gzBuf.Bytes()).
+			Post(a.ServerURL + "/update")
+		if err != nil {
+			// сетевой/транспортный сбой — считаем ретраибл, вернём err
+			logger.Log.Debug("send error", zap.Error(err))
+			return err
+		}
+		// 502/503/504 — ретраим
+		if resp.StatusCode() == http.StatusBadGateway ||
+			resp.StatusCode() == http.StatusServiceUnavailable ||
+			resp.StatusCode() == http.StatusGatewayTimeout {
+			return fmt.Errorf("temporary server error %d", resp.StatusCode())
+		}
+		// 4xx — НЕ ретраим, сразу фейл
+		if resp.StatusCode() >= 400 && resp.StatusCode() < 500 {
+			return fmt.Errorf("client error %d: %s", resp.StatusCode(), resp.String())
+		}
+		// успех
+		logger.Log.Debug("metric sent", zap.String("id", metric.ID), zap.String("type", metric.MType))
+		return nil
+	}, func(err error) bool {
+		// retryIf: ретраим только сетевые ошибки (err != nil)
+		if err == nil {
+			return false
+		}
+		var ne net.Error
+		if errors.As(err, &ne) && ne.Timeout() {
+			return true
+		}
+		// обрыв соединения/временная недоступность — тоже ретраим
+		return true
+	})
 
-	if resp.IsError() {
-		logger.Log.Debug("server returned error", zap.Int("status", resp.StatusCode()), zap.String("body", resp.String()))
-		return err
-	}
-	logger.Log.Debug("metric sent", zap.String("id", metric.ID), zap.String("type", metric.MType))
-	return nil
+	//logger.Log.Debug("metric sent", zap.String("id", metric.ID), zap.String("type", metric.MType))
+	//return nil
 }
 
 // collectMetrics собирает метрики из runtime и обновляет состояние агента
@@ -123,22 +155,33 @@ func (a *Agent) reportMetrics() {
 			MType: "gauge",
 			Value: &value,
 		}
-		_ = a.sendMetricJSON(metric) // намеренно игнорируем ошибку, но логируем
+		_ = a.sendMetricJSON(metric)
+		if err := a.sendMetricJSON(metric); err != nil {
+			logger.Log.Error("failed to send metric", zap.String("id", metric.ID), zap.Error(err))
+		}
 	}
 
 	random := a.RandomValue
-	_ = a.sendMetricJSON(models.Metrics{ // намеренно игнорируем ошибку, но логируем
+	err := a.sendMetricJSON(models.Metrics{
 		ID:    "RandomValue",
 		MType: "gauge",
 		Value: &random,
 	})
 
+	if err != nil {
+		logger.Log.Error("failed to send random value", zap.Error(err))
+	}
+
 	poll := a.PollCount
-	_ = a.sendMetricJSON(models.Metrics{ // намеренно игнорируем ошибку, но логируем
+	err = a.sendMetricJSON(models.Metrics{
 		ID:    "PollCount",
 		MType: "counter",
 		Delta: &poll,
 	})
+
+	if err != nil {
+		logger.Log.Error("failed to send poll count", zap.Error(err))
+	}
 
 	logger.Log.Debug("metrics reported")
 }
