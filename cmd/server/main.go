@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,10 +9,13 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/handler"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/repository"
 	"github.com/go-chi/chi/v5"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 )
 
@@ -181,6 +185,38 @@ func indexHandler(storage repository.Storage) http.HandlerFunc {
 	}
 }
 
+// GET /
+func pingHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if db == nil {
+			http.Error(w, "DB not configured", http.StatusInternalServerError)
+			return
+		}
+		if err := db.PingContext(r.Context()); err != nil {
+			http.Error(w, "DB not available", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "pong")
+	}
+}
+
+func initPostgres(dsn string) (*sql.DB, error) {
+	if dsn == "" {
+		return nil, nil // режим без БД
+	}
+
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open DB: %w", err)
+	}
+	if err = db.Ping(); err != nil {
+		return nil, fmt.Errorf("failed to ping DB: %w", err)
+	}
+	logger.Log.Info("Connected to PostgreSQL successfully")
+	return db, nil
+}
+
 func main() {
 
 	// обрабатываем аргументы командной строки
@@ -199,19 +235,34 @@ func run() error {
 		return err
 	}
 
-	storage := repository.NewMemStorage()
+	db, err := initPostgres(flagDatabaseDSN)
+	if err != nil {
+		return err
+	}
+
+	if db != nil {
+		if err := repository.RunMigrations(flagDatabaseDSN); err != nil {
+			return fmt.Errorf("failed to run migrations: %w", err)
+		}
+	}
+
+	var storage repository.Storage
+	if db != nil {
+		storage = repository.NewPostgresStorage(db)
+	} else {
+		storage = repository.NewMemStorage()
+	}
 
 	// загружаем метрики из файла, если включено
-	if flagRestore && flagFileStoragePath != "" {
-
-		if err := storage.LoadFromFile(flagFileStoragePath); err != nil {
+	if memStorage, ok := storage.(*repository.MemStorage); ok && flagRestore && flagFileStoragePath != "" {
+		if err := memStorage.LoadFromFile(flagFileStoragePath); err != nil {
 			logger.Log.Warn("Failed to restore metrics", zap.Error(err))
 		}
 	}
 
 	// запуск периодического сохранения, если установлен интервал > 0
-	if flagStoreInterval > 0 && flagFileStoragePath != "" {
-		go storage.PeriodicStore(flagFileStoragePath, time.Duration(flagStoreInterval)*time.Second)
+	if memStorage, ok := storage.(*repository.MemStorage); ok && flagStoreInterval > 0 && flagFileStoragePath != "" {
+		go memStorage.PeriodicStore(flagFileStoragePath, time.Duration(flagStoreInterval)*time.Second)
 	}
 
 	r := chi.NewRouter()
@@ -227,11 +278,18 @@ func run() error {
 	r.Post("/update", updateHandlerJSON(storage))
 	r.Post("/update/", updateHandlerJSON(storage))
 
+	r.Post("/updates", handler.UpdatesHandler(storage))
+	r.Post("/updates/", handler.UpdatesHandler(storage))
+
 	r.Post("/value", valueHandlerJSON(storage))
 	r.Post("/value/", valueHandlerJSON(storage))
 
 	r.Get("/value/{type}/{name}", valueHandler(storage))
 	r.Get("/", indexHandler(storage))
+
+	if db != nil {
+		r.Get("/ping", pingHandler(db)) //проверяет соединение с базой данных.
+	}
 
 	logger.Log.Info("Running server", zap.String("address", flagRunAddr))
 

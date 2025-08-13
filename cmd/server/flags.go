@@ -13,12 +13,14 @@ var flagRunAddr string
 var flagStoreInterval int64
 var flagFileStoragePath string
 var flagRestore bool
+var flagDatabaseDSN string
 
 type Config struct {
 	RunAddr         string `env:"ADDRESS"`
 	StoreInterval   int64  `env:"STORE_INTERVAL"`
 	FileStoragePath string `env:"FILE_STORAGE_PATH"`
 	Restore         bool   `env:"RESTORE"`
+	DatabaseDSN     string `env:"DATABASE_DSN"`
 }
 
 // parseFlags обрабатывает аргументы командной строки
@@ -28,6 +30,7 @@ func parseFlags() {
 	flag.Int64Var(&flagStoreInterval, "i", 300, "storage interval in seconds")
 	flag.StringVar(&flagFileStoragePath, "f", "/tmp/metrics-db.json", "file storage path")
 	flag.BoolVar(&flagRestore, "r", false, "restore from file storage")
+	flag.StringVar(&flagDatabaseDSN, "d", "", "database DSN for persistent storage") // postgres://admin:admin@localhost:5432/videos
 
 	// парсим переданные серверу аргументы в зарегистрированные переменные
 	flag.Parse()
@@ -61,6 +64,10 @@ func parseFlags() {
 	// Устанавливаем значение только если переменная окружения была явно задана
 	if _, ok := os.LookupEnv("RESTORE"); ok {
 		flagRestore = cfg.Restore
+	}
+
+	if cfg.DatabaseDSN != "" {
+		flagDatabaseDSN = cfg.DatabaseDSN
 	}
 
 }

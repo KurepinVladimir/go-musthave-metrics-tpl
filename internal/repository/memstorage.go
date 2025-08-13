@@ -21,6 +21,11 @@ type Storage interface {
 	GetAllMetrics(ctx context.Context) (map[string]float64, map[string]int64)
 }
 
+// Опциональное расширение: если реализация его поддержит — применим батч атомарно.
+type BatchUpdater interface {
+	UpdateBatch(ctx context.Context, batch []models.Metrics) error
+}
+
 // MemStorage реализует интерфейс Storage. хранилища в памяти
 type MemStorage struct {
 	mu       sync.RWMutex
@@ -150,4 +155,26 @@ func (s *MemStorage) PeriodicStore(filename string, interval time.Duration) {
 	for range ticker.C {
 		_ = s.SaveToFile(filename)
 	}
+}
+
+func (s *MemStorage) UpdateBatch(ctx context.Context, batch []models.Metrics) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, met := range batch {
+		switch met.MType {
+		case "gauge":
+			if met.Value == nil {
+				continue
+			}
+			s.gauges[met.ID] = *met.Value
+		case "counter":
+			if met.Delta == nil {
+				continue
+			}
+
+			s.counters[met.ID] += *met.Delta
+		}
+	}
+	return nil
 }
