@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/cryptohelpers"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/retry"
@@ -64,13 +65,26 @@ func (a *Agent) sendMetricJSON(metric models.Metrics) error {
 
 	// Отправляем сжатый JSON
 	return retry.DoIf(context.Background(), httpDelays, func(ctx context.Context) error {
-		resp, err := a.Client.R().
-			SetContext(ctx).
+		// resp, err := a.Client.R().
+		// 	SetContext(ctx).
+		// 	SetHeader("Content-Type", "application/json").
+		// 	SetHeader("Content-Encoding", "gzip").
+		// 	SetHeader("Accept-Encoding", "gzip").
+		// 	SetBody(gzBuf.Bytes()).
+		// 	Post(a.ServerURL + "/update")
+
+		req := a.Client.R().
 			SetHeader("Content-Type", "application/json").
 			SetHeader("Content-Encoding", "gzip").
-			SetHeader("Accept-Encoding", "gzip").
-			SetBody(gzBuf.Bytes()).
-			Post(a.ServerURL + "/update")
+			SetHeader("Accept-Encoding", "gzip"). // Говорим серверу: "Я поддерживаю сжатые ответы"
+			SetBody(gzBuf.Bytes())
+
+		if flagKey != "" {
+			hashStr := cryptohelpers.Sign(jsonBuf.Bytes(), flagKey) // Вычисляем HMAC-SHA256 от JSON
+			req.SetHeader("HashSHA256", hashStr)
+		}
+
+		resp, err := req.Post(a.ServerURL + "/update")
 		if err != nil {
 			// сетевой/транспортный сбой — считаем ретраибл, вернём err
 			logger.Log.Debug("send error", zap.Error(err))
