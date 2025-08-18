@@ -167,7 +167,6 @@ func (a *Agent) reportMetrics() {
 			MType: "gauge",
 			Value: &value,
 		}
-		_ = a.sendMetricJSON(metric)
 		if err := a.sendMetricJSON(metric); err != nil {
 			logger.Log.Error("failed to send metric", zap.String("id", metric.ID), zap.Error(err))
 		}
