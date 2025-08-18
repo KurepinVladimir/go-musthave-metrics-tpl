@@ -9,7 +9,7 @@ import (
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/repository"
 )
 
-func UpdatesHandler(storage repository.Storage) http.HandlerFunc {
+func UpdatesHandler(storage repository.Storage, key string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
@@ -60,8 +60,10 @@ func UpdatesHandler(storage repository.Storage) http.HandlerFunc {
 			}
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+		// w.Header().Set("Content-Type", "application/json")
+		// w.WriteHeader(http.StatusOK)
+		// _, _ = w.Write([]byte(`{"status":"ok"}`))
+
+		_ = WriteSignedJSONResponse(w, []byte(`{"status":"ok"}`), key)
 	}
 }

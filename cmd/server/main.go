@@ -11,6 +11,7 @@ import (
 
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/handler"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/logger"
+	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/middleware"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/models"
 	"github.com/KurepinVladimir/go-musthave-metrics-tpl.git/internal/repository"
 	"github.com/go-chi/chi/v5"
@@ -90,15 +91,19 @@ func updateHandlerJSON(storage repository.Storage) http.HandlerFunc {
 			return
 		}
 
-		// установим правильный заголовок для типа данных
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		// сериализуем ответ сервера
-		enc := json.NewEncoder(w)
-		if err := enc.Encode(m); err != nil {
-			logger.Log.Debug("error encoding response", zap.Error(err))
-			return
+		// // установим правильный заголовок для типа данных
+		// w.Header().Set("Content-Type", "application/json")
+		// w.WriteHeader(http.StatusOK)
+		// // сериализуем ответ сервера
+		// enc := json.NewEncoder(w)
+		// if err := enc.Encode(m); err != nil {
+		// 	logger.Log.Debug("error encoding response", zap.Error(err))
+		// 	return
+		// }
+		if err := handler.WriteSignedJSONResponse(w, m, flagKey); err != nil {
+			logger.Log.Debug("error writing signed response", zap.Error(err))
 		}
+
 		logger.Log.Debug("sending HTTP 200 response")
 	}
 }
@@ -111,7 +116,7 @@ func valueHandlerJSON(storage repository.Storage) http.HandlerFunc {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
+		//w.Header().Set("Content-Type", "application/json")
 		switch m.MType {
 		case "gauge":
 			val, ok := storage.GetGauge(r.Context(), m.ID)
@@ -131,7 +136,8 @@ func valueHandlerJSON(storage repository.Storage) http.HandlerFunc {
 			http.Error(w, "unknown metric type", http.StatusNotImplemented)
 			return
 		}
-		json.NewEncoder(w).Encode(m)
+		//json.NewEncoder(w).Encode(m)
+		_ = handler.WriteSignedJSONResponse(w, m, flagKey)
 	}
 }
 
@@ -275,11 +281,13 @@ func run() error {
 
 	r.Post("/update/{type}/{name}/{value}", updateHandler(storage)) // Регистрируем маршрут с параметрами
 
-	r.Post("/update", updateHandlerJSON(storage))
-	r.Post("/update/", updateHandlerJSON(storage))
+	hashMiddleware := middleware.ValidateHashSHA256(flagKey)
 
-	r.Post("/updates", handler.UpdatesHandler(storage))
-	r.Post("/updates/", handler.UpdatesHandler(storage))
+	r.With(hashMiddleware).Post("/update", updateHandlerJSON(storage))
+	r.With(hashMiddleware).Post("/update/", updateHandlerJSON(storage))
+
+	r.With(hashMiddleware).Post("/updates", handler.UpdatesHandler(storage, flagKey))
+	r.With(hashMiddleware).Post("/updates/", handler.UpdatesHandler(storage, flagKey))
 
 	r.Post("/value", valueHandlerJSON(storage))
 	r.Post("/value/", valueHandlerJSON(storage))

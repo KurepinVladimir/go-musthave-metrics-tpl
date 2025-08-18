@@ -13,12 +13,14 @@ var (
 	flagRunAddr        string
 	flagReportInterval int64
 	flagPollInterval   int64
+	flagKey            string
 )
 
 type Config struct {
 	RunAddr        string `env:"ADDRESS"`
 	ReportInterval int    `env:"REPORT_INTERVAL"`
 	PollInterval   int    `env:"POLL_INTERVAL"`
+	Key            string `env:"KEY"`
 }
 
 // parseFlags обрабатывает аргументы командной строки
@@ -33,6 +35,8 @@ func parseFlags() {
 
 	// Флаг -p=<ЗНАЧЕНИЕ> позволяет переопределять pollInterval — частоту опроса метрик из пакета runtime (по умолчанию 2 секунды).
 	flag.Int64Var(&flagPollInterval, "p", 2, "poll interval in seconds") //2
+
+	flag.StringVar(&flagKey, "k", "", "Key")
 
 	// парсим переданные аргументы в зарегистрированные переменные
 	flag.Parse()
@@ -67,6 +71,10 @@ func parseFlags() {
 
 	if envPollInterval := cfg.PollInterval; envPollInterval != 0 {
 		flagPollInterval = int64(envPollInterval)
+	}
+
+	if envKey := cfg.Key; envKey != "" {
+		flagKey = envKey
 	}
 
 }
