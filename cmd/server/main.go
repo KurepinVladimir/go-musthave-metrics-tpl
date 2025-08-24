@@ -91,15 +91,6 @@ func updateHandlerJSON(storage repository.Storage) http.HandlerFunc {
 			return
 		}
 
-		// // установим правильный заголовок для типа данных
-		// w.Header().Set("Content-Type", "application/json")
-		// w.WriteHeader(http.StatusOK)
-		// // сериализуем ответ сервера
-		// enc := json.NewEncoder(w)
-		// if err := enc.Encode(m); err != nil {
-		// 	logger.Log.Debug("error encoding response", zap.Error(err))
-		// 	return
-		// }
 		if err := handler.WriteSignedJSONResponse(w, m, flagKey); err != nil {
 			logger.Log.Debug("error writing signed response", zap.Error(err))
 		}
@@ -136,7 +127,7 @@ func valueHandlerJSON(storage repository.Storage) http.HandlerFunc {
 			http.Error(w, "unknown metric type", http.StatusNotImplemented)
 			return
 		}
-		//json.NewEncoder(w).Encode(m)
+
 		_ = handler.WriteSignedJSONResponse(w, m, flagKey)
 	}
 }
