@@ -65,13 +65,6 @@ func (a *Agent) sendMetricJSON(metric models.Metrics) error {
 
 	// Отправляем сжатый JSON
 	return retry.DoIf(context.Background(), httpDelays, func(ctx context.Context) error {
-		// resp, err := a.Client.R().
-		// 	SetContext(ctx).
-		// 	SetHeader("Content-Type", "application/json").
-		// 	SetHeader("Content-Encoding", "gzip").
-		// 	SetHeader("Accept-Encoding", "gzip").
-		// 	SetBody(gzBuf.Bytes()).
-		// 	Post(a.ServerURL + "/update")
 
 		req := a.Client.R().
 			SetHeader("Content-Type", "application/json").
@@ -157,46 +150,6 @@ func (a *Agent) collectMetrics() {
 	a.PollCount++                  // Увеличиваем счётчик обновлений
 }
 
-// reportMetrics отправляет все собранные метрики на сервер
-// func (a *Agent) reportMetrics() {
-
-// 	for name, val := range a.Metrics {
-// 		value := val
-// 		metric := models.Metrics{
-// 			ID:    name,
-// 			MType: "gauge",
-// 			Value: &value,
-// 		}
-// 		if err := a.sendMetricJSON(metric); err != nil {
-// 			logger.Log.Error("failed to send metric", zap.String("id", metric.ID), zap.Error(err))
-// 		}
-// 	}
-
-// 	random := a.RandomValue
-// 	err := a.sendMetricJSON(models.Metrics{
-// 		ID:    "RandomValue",
-// 		MType: "gauge",
-// 		Value: &random,
-// 	})
-
-// 	if err != nil {
-// 		logger.Log.Error("failed to send random value", zap.Error(err))
-// 	}
-
-// 	poll := a.PollCount
-// 	err = a.sendMetricJSON(models.Metrics{
-// 		ID:    "PollCount",
-// 		MType: "counter",
-// 		Delta: &poll,
-// 	})
-
-// 	if err != nil {
-// 		logger.Log.Error("failed to send poll count", zap.Error(err))
-// 	}
-
-// 	logger.Log.Debug("metrics reported")
-// }
-
 func main() {
 
 	parseFlags() // обрабатываем аргументы командной строки
@@ -206,23 +159,6 @@ func main() {
 	pollInterval := time.Duration(flagPollInterval) * time.Second     // Интервал обновления метрик, по умолчанию 2 секунды
 
 	agent := NewAgent(flagRunAddr) // Создаём нового агента с адресом сервера
-
-	// tickerPoll := time.NewTicker(pollInterval)     // Таймер для обновления метрик
-	// tickerReport := time.NewTicker(reportInterval) // Таймер для отправки метрик
-	// defer tickerPoll.Stop()
-	// defer tickerReport.Stop()
-
-	// for {
-	// 	select {
-	// 	case <-tickerPoll.C:
-	// 		agent.collectMetrics() // Сбор метрик из runtime и обновление состояния агента
-	// 	case <-tickerReport.C:
-	// 		agent.reportMetrics() // Отправка собранных метрик на сервер
-	// 	}
-	// }
-
-	// // общий канал заданий на отправку
-	// jobs := make(chan models.Metrics, 2048)
 
 	// Канал заданий на отправку
 	jobs := make(chan models.Metrics, 2048)
@@ -268,7 +204,7 @@ func main() {
 		}
 	}()
 
-	// (в) Системные метрики через gopsutil (каждые 5s; при желании сделай флаг)
+	// (в) Системные метрики через gopsutil (каждые 5s)
 	go collectSysLoop(ctx, 5*time.Second, jobs)
 
 	// Пул воркеров ограничивает число одновременных исходящих запросов
