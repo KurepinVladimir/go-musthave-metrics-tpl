@@ -158,44 +158,44 @@ func (a *Agent) collectMetrics() {
 }
 
 // reportMetrics отправляет все собранные метрики на сервер
-func (a *Agent) reportMetrics() {
+// func (a *Agent) reportMetrics() {
 
-	for name, val := range a.Metrics {
-		value := val
-		metric := models.Metrics{
-			ID:    name,
-			MType: "gauge",
-			Value: &value,
-		}
-		if err := a.sendMetricJSON(metric); err != nil {
-			logger.Log.Error("failed to send metric", zap.String("id", metric.ID), zap.Error(err))
-		}
-	}
+// 	for name, val := range a.Metrics {
+// 		value := val
+// 		metric := models.Metrics{
+// 			ID:    name,
+// 			MType: "gauge",
+// 			Value: &value,
+// 		}
+// 		if err := a.sendMetricJSON(metric); err != nil {
+// 			logger.Log.Error("failed to send metric", zap.String("id", metric.ID), zap.Error(err))
+// 		}
+// 	}
 
-	random := a.RandomValue
-	err := a.sendMetricJSON(models.Metrics{
-		ID:    "RandomValue",
-		MType: "gauge",
-		Value: &random,
-	})
+// 	random := a.RandomValue
+// 	err := a.sendMetricJSON(models.Metrics{
+// 		ID:    "RandomValue",
+// 		MType: "gauge",
+// 		Value: &random,
+// 	})
 
-	if err != nil {
-		logger.Log.Error("failed to send random value", zap.Error(err))
-	}
+// 	if err != nil {
+// 		logger.Log.Error("failed to send random value", zap.Error(err))
+// 	}
 
-	poll := a.PollCount
-	err = a.sendMetricJSON(models.Metrics{
-		ID:    "PollCount",
-		MType: "counter",
-		Delta: &poll,
-	})
+// 	poll := a.PollCount
+// 	err = a.sendMetricJSON(models.Metrics{
+// 		ID:    "PollCount",
+// 		MType: "counter",
+// 		Delta: &poll,
+// 	})
 
-	if err != nil {
-		logger.Log.Error("failed to send poll count", zap.Error(err))
-	}
+// 	if err != nil {
+// 		logger.Log.Error("failed to send poll count", zap.Error(err))
+// 	}
 
-	logger.Log.Debug("metrics reported")
-}
+// 	logger.Log.Debug("metrics reported")
+// }
 
 func main() {
 
@@ -205,18 +205,76 @@ func main() {
 	reportInterval := time.Duration(flagReportInterval) * time.Second // Интервал отправки метрик на сервер, по умолчанию 10 секунд
 	pollInterval := time.Duration(flagPollInterval) * time.Second     // Интервал обновления метрик, по умолчанию 2 секунды
 
-	agent := NewAgent(flagRunAddr)                 // Создаём нового агента с адресом сервера
-	tickerPoll := time.NewTicker(pollInterval)     // Таймер для обновления метрик
-	tickerReport := time.NewTicker(reportInterval) // Таймер для отправки метрик
-	defer tickerPoll.Stop()
-	defer tickerReport.Stop()
+	agent := NewAgent(flagRunAddr) // Создаём нового агента с адресом сервера
 
-	for {
-		select {
-		case <-tickerPoll.C:
-			agent.collectMetrics() // Сбор метрик из runtime и обновление состояния агента
-		case <-tickerReport.C:
-			agent.reportMetrics() // Отправка собранных метрик на сервер
+	// tickerPoll := time.NewTicker(pollInterval)     // Таймер для обновления метрик
+	// tickerReport := time.NewTicker(reportInterval) // Таймер для отправки метрик
+	// defer tickerPoll.Stop()
+	// defer tickerReport.Stop()
+
+	// for {
+	// 	select {
+	// 	case <-tickerPoll.C:
+	// 		agent.collectMetrics() // Сбор метрик из runtime и обновление состояния агента
+	// 	case <-tickerReport.C:
+	// 		agent.reportMetrics() // Отправка собранных метрик на сервер
+	// 	}
+	// }
+
+	// // общий канал заданий на отправку
+	// jobs := make(chan models.Metrics, 2048)
+
+	// Канал заданий на отправку
+	jobs := make(chan models.Metrics, 2048)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// (а) Сбор runtime по pollInterval — только обновляет состояние агентa
+	go func() {
+		t := time.NewTicker(pollInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				agent.collectMetrics()
+			}
 		}
-	}
+	}()
+
+	// (б) Формирование заданий для отправки по reportInterval
+	go func() {
+		t := time.NewTicker(reportInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				// gauge из карты
+				for name, val := range agent.Metrics {
+					v := val
+					jobs <- models.Metrics{ID: name, MType: "gauge", Value: &v}
+				}
+				// RandomValue как gauge
+				rv := agent.RandomValue
+				jobs <- models.Metrics{ID: "RandomValue", MType: "gauge", Value: &rv}
+				// PollCount как counter
+				pc := agent.PollCount
+				jobs <- models.Metrics{ID: "PollCount", MType: "counter", Delta: &pc}
+			}
+		}
+	}()
+
+	// (в) Системные метрики через gopsutil (каждые 5s; при желании сделай флаг)
+	go collectSysLoop(ctx, 5*time.Second, jobs)
+
+	// Пул воркеров ограничивает число одновременных исходящих запросов
+	_ = startWorkers(ctx, flagRateLimit, jobs, agent)
+
+	// Блокируемся (упрощённо). Для graceful shutdown можно ловить SIGINT/SIGTERM.
+	select {}
+
 }
